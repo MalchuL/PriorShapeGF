@@ -1,7 +1,8 @@
 checkpoint_path: null
 
 num_epochs: &num_epochs 1000
-steps_limit: 1000
+train_steps_limit: 1000
+val_steps_limit: 10
 
 lr: &lr 0.001
 weight_decay: &wd 0.0
@@ -15,10 +16,10 @@ weight: 1
 
 log_freq: 10
 log_point_cloud: 100
-check_val_every_n_epoch: 10
+check_val_every_n_epoch: 2
 
 trainer:
-  sigma_begin: 1
+  sigma_begin: 0.3
   sigma_end: 0.01
   sigma_num: 10
 
@@ -52,7 +53,7 @@ data_params:
 
 scheduler_params:
    scheduler: ExponentialLR
-   gamma: 0.9993
+   gamma: 0.9977
 
 
 

@@ -16,13 +16,13 @@ def main(cfg):
     checkpoint_callback = ModelCheckpoint(
         filepath='checkpoints/model_last.ckpt',
         verbose=True,
-        monitor='val_loss',
+        monitor='valid/chamfer_distance_epoch',
         mode='min'
     )
 
     trainer = Trainer(gpus=1 , max_epochs=cfg.num_epochs, logger=logger,
                           checkpoint_callback=checkpoint_callback,
-                          log_every_n_steps=cfg.log_freq, flush_logs_every_n_steps=cfg.log_freq, log_gpu_memory=True, limit_train_batches=cfg.steps_limit,
+                          log_every_n_steps=cfg.log_freq, flush_logs_every_n_steps=cfg.log_freq, log_gpu_memory=True, limit_train_batches=cfg.train_steps_limit, limit_val_batches=cfg.val_steps_limit,
                           resume_from_checkpoint=cfg.checkpoint_path, check_val_every_n_epoch=cfg.check_val_every_n_epoch,
                           callbacks=[LearningRateMonitor()])
 

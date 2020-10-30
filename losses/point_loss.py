@@ -47,11 +47,8 @@ class ShapeGFPointLoss(nn.Module):
         return loss
 
 class ChamferDistance(nn.Module):
-    def forward(self, x, y):  # for example, x = batch,3,M y = batch,3,M
+    def forward(self, x, y):  # for example, x = batch,M,3 y = batch,M,3
         #   compute chamfer distance between tow point clouds x and y
-
-        x = x.transpose(1,2)
-        y = y.transpose(1,2)
 
         x_size = x.size()
         y_size = y.size()

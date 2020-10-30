@@ -13,6 +13,7 @@ from datasets import utils
 from datasets.SortedItemsDatasetWrapper import SortedItemsDatasetWrapper
 from datasets.preprocessed_dataset import PreprocessedPickleDataset
 from datasets.transformed_dataset import TransformedDataset
+from losses import ChamferDistance
 from losses.losses import define_loss, define_loss_from_params
 from models import networks
 
@@ -40,8 +41,9 @@ class ThreeDExperiment(pl.LightningModule):
             np.linspace(np.log(self.sigma_begin),
                         np.log(self.sigma_end),
                         self.num_classes, dtype=np.float32))
-
+        print(self.sigmas)
         self.create_model()
+        self.val_loss = ChamferDistance()
 
     def get_scheduler(self, optimizer):
 
@@ -116,10 +118,10 @@ class ThreeDExperiment(pl.LightningModule):
         batch_idx = 0
         if self.global_step % self.hparams.log_point_cloud == 0:
             points_gt = out['input_point_cloud'][batch_idx]
-            self.log_point_cloud('input_point_cloud', points_gt.view(1, -1, 3))
+            self.log_point_cloud('train/' + 'input_point_cloud', points_gt.view(1, -1, 3))
             points_pred = out['perturbed_points'][batch_idx] + out['y_pred'][batch_idx] * out['sigmas'][batch_idx].view(
                 -1, 1, 1)
-            self.log_point_cloud('predicted_point_cloud', points_pred.view(1, -1, 3))
+            self.log_point_cloud('train/' + 'predicted_point_cloud', points_pred.view(1, -1, 3))
 
         return outputs
 
@@ -146,8 +148,8 @@ class ThreeDExperiment(pl.LightningModule):
                'perturbed_points': perturbed_points,
                'sigmas': sigmas
                }
-
-        return {'loss': loss, 'out': out}
+        log = {'train/loss': loss, 'min':y_pred.min(), 'max':y_pred.max()}
+        return {'loss': loss, 'out': out, 'log': log, 'progress_bar': log}
 
     def validation_step(self, batch, batch_nb):
         if batch_nb == 0:
@@ -156,8 +158,18 @@ class ThreeDExperiment(pl.LightningModule):
             pred = self.langevin_dynamics(z, self.hparams.points_count, self.hparams.step_size_ratio,
                                           self.hparams.num_steps,
                                           self.hparams.weight)
-            self.log_point_cloud('input_point_cloud', pred[0].view(1, -1, 3))
-        return {}
+            self.log_point_cloud('valid/' + 'input_point_cloud', input[0].view(1, -1, 3))
+            self.log_point_cloud('valid/' + 'pred_point_cloud', pred[0].view(1, -1, 3))
+
+        z, _ = self.encoder(batch[0])
+        pred = self.langevin_dynamics(z, self.hparams.points_count, self.hparams.step_size_ratio,
+                                      self.hparams.num_steps,
+                                      self.hparams.weight)
+        loss = self.val_loss(batch[0], pred )
+        #print('valid/chamfer_distance', loss)
+        log = {'valid/chamfer_distance': loss}
+        self.log_dict(log, prog_bar=True, on_step=True, on_epoch=True)
+
 
     def langevin_dynamics(self, z, num_points=2048, step_size_ratio=1, num_steps=5, weight=1):
         with torch.no_grad():
@@ -175,13 +187,12 @@ class ThreeDExperiment(pl.LightningModule):
                     z_t = torch.randn_like(x) * weight
                     x += torch.sqrt(step_size) * z_t
                     grad = self.decoder(x, z_sigma)
+                    #print(grad)
                     grad = grad / sigma ** 2
                     x += 0.5 * step_size * grad
-
+                #print('max/min for sigma', sigma, ':',x.max(),'/',x.min())
         return x
 
-    def validation_epoch_end(self, outputs):
-        return {'val_loss': -self.current_epoch}
 
     def configure_optimizers(self):
         params = itertools.chain(self.encoder.parameters(), self.decoder.parameters())
