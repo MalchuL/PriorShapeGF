@@ -45,10 +45,9 @@ class ThreeDExperiment(pl.LightningModule):
         print(self.sigmas)
         self.create_model()
         self.folding_loss = MaxChamferDistance()
+        self.identity_folding_loss = nn.MSELoss()
         self.val_loss = ChamferDistance()
 
-        #self.sigmas_min = nn.Parameter(torch.ones(1), requires_grad=False)
-        #self.sigma_momentum = 0.1
 
     def get_scheduler(self, optimizer):
 
@@ -150,8 +149,13 @@ class ThreeDExperiment(pl.LightningModule):
         z_mu, z_sigma = self.encoder(input)
         z = z_mu + 0 * z_sigma
 
-        folded_points = self.folding_decoder(z)
-        folding_loss = self.folding_loss(folded_points, input)
+        folded_points, folded_points_first, grid = self.folding_decoder(z)
+        folding_loss = self.folding_loss(folded_points, input) * self.hparams.trainer.folding_coef + self.folding_loss(folded_points_first, input) * self.hparams.trainer.folding_first_coef
+
+        grid_coef = 0
+        if self.global_step < self.hparams.trainer.folding_grid_steps:
+            grid_coef = self.hparams.trainer.folding_grid_coef * (1 - self.global_step / self.hparams.trainer.folding_grid_steps)
+            folding_loss += grid_coef *  (self.identity_folding_loss(folded_points, grid) + self.identity_folding_loss(folded_points_first, grid))
 
         #self.sigmas_min.data = self.sigma_momentum * torch.sqrt(self.folding_loss(folded_points, input)) + (1 - self.sigma_momentum) * self.sigmas_min.data
 
@@ -160,7 +164,7 @@ class ThreeDExperiment(pl.LightningModule):
 
         reconstruction_loss = self.reconstruction_loss(input, perturbed_points, y_pred, sigmas)
 
-        loss = reconstruction_loss + folding_loss * self.hparams.trainer.folding_coef
+        loss = reconstruction_loss + folding_loss
 
         out = {'input_point_cloud': input,
                'y_pred': y_pred,
@@ -168,14 +172,14 @@ class ThreeDExperiment(pl.LightningModule):
                'folding_points': folded_points,
                'sigmas': sigmas
                }
-        log = {'train/loss': loss, 'folding_loss': folding_loss, 'reconstruction_loss': reconstruction_loss}
+        log = {'train/loss': loss, 'folding_loss': folding_loss, 'reconstruction_loss': reconstruction_loss, 'grid_coef': grid_coef}
         return {'loss': loss, 'out': out, 'log': log, 'progress_bar': log}
 
     def validation_step(self, batch, batch_nb):
         if batch_nb == 0:
             input = batch[0]
             z, _ = self.encoder(input)
-            prior_cloud = self.folding_decoder(z)
+            prior_cloud, _, _ = self.folding_decoder(z)
             pred = self.langevin_dynamics(z, prior_cloud, self.hparams.points_count, self.hparams.step_size_ratio,
                                           self.hparams.num_steps,
                                           self.hparams.weight)
@@ -185,7 +189,7 @@ class ThreeDExperiment(pl.LightningModule):
             self.log_point_cloud('valid/' + 'folding_point_cloud', prior_cloud[0].unsqueeze(0))
 
         z, _ = self.encoder(batch[0])
-        prior_cloud = self.folding_decoder(z)
+        prior_cloud, _, _ = self.folding_decoder(z)
         pred = self.langevin_dynamics(z, prior_cloud, self.hparams.points_count, self.hparams.step_size_ratio,
                                       self.hparams.num_steps,
                                       self.hparams.weight)

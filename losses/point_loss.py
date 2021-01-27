@@ -69,18 +69,33 @@ class ChamferDistance(nn.Module):
 
 class MaxChamferDistance(nn.Module):
 
+    def __init__(self, Z_index=0.5):
+        super().__init__()
+        self.Z_index = Z_index
+
+    def mask_by_Z(self, x, Z_index):
+        if Z_index is None:
+            return x
+        with torch.no_grad():
+            std, mean = torch.std_mean(x)
+            x_minus_mean = x - mean
+            mask = x_minus_mean > -Z_index * std
+        return x[mask]
+
     def chamfer_distance(self, S1: torch.Tensor, S2: torch.Tensor,
                          w1: float = 1., w2: float = 1.):
-
-
+        # Nx3
         assert (S1.dim() == S2.dim()), 'S1 and S2 must have the same dimesionality'
         assert (S1.dim() == 2), 'the dimensions of the input must be 2 '
 
-        dist_to_S2 = directed_distance(S1, S2)
-        dist_to_S1 = directed_distance(S2, S1)
+        dist_to_S2 = directed_distance(S1, S2, mean=False)
+        dist_to_S1 = directed_distance(S2, S1, mean=False)
 
+        dist_to_S2 = self.mask_by_Z(dist_to_S2, self.Z_index)
+        dist_to_S1 = self.mask_by_Z(dist_to_S1, self.Z_index)
+        #print(dist_to_S1.shape, dist_to_S2.shape)
 
-        return dist_to_S2, dist_to_S1
+        return dist_to_S2.mean(), dist_to_S1.mean()
 
     def forward(self, x, y):  # for example, x = batch,M,3 y = batch,M,3
         #   compute chamfer distance between tow point clouds x and y
@@ -93,8 +108,7 @@ class MaxChamferDistance(nn.Module):
         chamfer_loss = []
 
         for i in range(x_size[0]):
-
-            chamfer_loss.append(max(self.chamfer_distance(x[i],y[i])))
+            chamfer_loss.append(sum(self.chamfer_distance(x[i], y[i])))
         chamfer_loss = torch.stack(chamfer_loss).mean()
 
         return chamfer_loss

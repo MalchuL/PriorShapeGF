@@ -1,0 +1,2 @@
+trimesh==3.2.39
+kaolin==0.1.0

@@ -19,11 +19,15 @@ log_point_cloud: 100
 check_val_every_n_epoch: 2
 
 trainer:
-  sigma_begin: 0.05
-  sigma_end: 0.005
+  sigma_begin: 0.1
+  sigma_end: 0.01
   sigma_num: 10
 
   folding_coef: 10
+  folding_first_coef: 1
+
+  folding_grid_coef: 2
+  folding_grid_steps: 10000
 
 
 

@@ -97,24 +97,24 @@ class FoldingNetDec3d(nn.Module):
         x = x.transpose(2, 1)  # x = batch,514,45^2
 
         x = self.fold1(x)  # x = batch,3,45^2
-        p1 = x  # to observe
+        p1 = x.transpose(2, 1).clone()  # to observe
 
         x = torch.cat((code, x), 1)  # x = batch,515,45^2
 
         x = self.fold2(x)  # x = batch,3,45^2
         x = x.transpose(2, 1)  # x = batch,45^2,3
-        return x
+        return x, p1
 
 
 
 @cache(10)
-def fibonacci_sphere(batch_size, samples=1):
+def fibonacci_sphere(batch_size, samples=1, r=1.0):
 
     points = []
     phi = math.pi * (3. - math.sqrt(5.))  # golden angle in radians
 
     for i in range(samples):
-        y = 1 - (i / float(samples - 1)) * 2  # y goes from 1 to -1
+        y = 1 - (i / float(samples - 1)) * 2 * r  # y goes from 1 to -1
         radius = math.sqrt(1 - y * y)  # radius at y
 
         theta = phi * i  # golden angle increment
@@ -154,10 +154,10 @@ class FoldingNetDec3dSphere(nn.Module):
         x = x.transpose(2, 1)  # x = batch,514,45^2
 
         x = self.fold1(x)  # x = batch,3,45^2
-        p1 = x  # to observe
+        p1 = x.transpose(2, 1).clone()  # to observe
 
         x = torch.cat((code, x), 1)  # x = batch,515,45^2
 
         x = self.fold2(x)  # x = batch,3,45^2
         x = x.transpose(2, 1)  # x = batch,45^2,3
-        return x
+        return x, p1, grid
