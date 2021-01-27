@@ -74,15 +74,12 @@ class ThreeDExperiment(pl.LightningModule):
     def get_nearest_point_sampling_config(point_count):
         TriangleConfig = utils.data_config.ThreeDConfig()
 
-        TriangleConfig.calculate_point_on_closed_triangle = 'closed_point'
-        TriangleConfig.sample_points = 'points'
-
-        TriangleConfig.sample_raw_surface_points = 'surface_points'
+        TriangleConfig.sample_points = 'surface_points'
 
         TriangleConfig.sample_settings.sample_points_count = point_count
-        TriangleConfig.sample_settings.sample_points_noise = 0.01
+        TriangleConfig.sample_settings.sample_points_noise = 0
         TriangleConfig.sample_settings.sample_even = True
-        TriangleConfig.sample_settings.sample_on_surface = False
+        TriangleConfig.sample_settings.sample_on_surface = True
 
         TriangleConfig.backend = 'trimesh'
 
@@ -172,7 +169,8 @@ class ThreeDExperiment(pl.LightningModule):
                'folding_points': folded_points,
                'sigmas': sigmas
                }
-        log = {'train/loss': loss, 'folding_loss': folding_loss, 'reconstruction_loss': reconstruction_loss, 'grid_coef': grid_coef}
+        log = {'train/loss': loss, 'min': input.max(), 'min': input.min(), 'folding_loss': folding_loss,
+               'reconstruction_loss': reconstruction_loss, 'grid_coef': grid_coef}
         return {'loss': loss, 'out': out, 'log': log, 'progress_bar': log}
 
     def validation_step(self, batch, batch_nb):

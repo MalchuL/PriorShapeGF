@@ -43,15 +43,20 @@ class PreprocessedPickleDataset(ShapeNetV2Dataset):
         result = {}
         for data in dumped_data:
             for key in data:
+                if key == self.ID_KEY:
+                    continue
+
                 if isinstance(data[key], np.ndarray):
                     result[key] = np.concatenate([result.get(key, np.zeros([0,*data[key].shape[1:]])), data[key]],axis=0)
 
                 elif isinstance(data[key], (tuple,list)):
                     result[key] = result.get(key, []).extend(data[key])
+                elif isinstance(data[key], (int, float)):
+                    result[key] = np.array([data[key] for _ in range(len(result[list(result.keys())[0]]))])
                 elif isinstance(data[key], str):
                     pass
                 else:
-                    raise TypeError(f'Unsupported type {type(data[key])}')
+                    raise TypeError(f'Unsupported type {data}: {type(data[key])}')
 
         try:
             size = len(result[list(result.keys())[0]])

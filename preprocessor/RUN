@@ -1,0 +1,9 @@
+export PYTHONPATH=`pwd`
+pip install rtree
+pip install trimesh==3.2.39
+
+python preprocessor/surface_preprocessor.py
+
+run  mkdata.py to split data
+
+when infer you must select folder for train train/0000000/ffffff with three levels of inners

@@ -1,4 +1,4 @@
-import utils
+import datasets.utils as utils
 
 SAMPLE_POINTS_COUNT = 2500
 

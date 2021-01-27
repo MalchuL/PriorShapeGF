@@ -1,6 +1,6 @@
 
-from preparation.configs.triangle_config import get_triangle_samplit_config
-from preparation.dataset import ShapeNetV2Dataset
+from datasets.configs.triangle_config import get_nearest_point_sampling_config
+from datasets.dataset import ShapeNetV2Dataset
 from tqdm import tqdm, trange
 import shutil
 
