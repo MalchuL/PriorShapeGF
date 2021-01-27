@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 import kaolin as kal
+from kaolin.metrics import directed_distance
+
 
 class RMSEPointLoss(nn.Module):
     def __init__(self, eps=0.0):
@@ -53,13 +55,46 @@ class ChamferDistance(nn.Module):
         x_size = x.size()
         y_size = y.size()
         assert (x_size[0] == y_size[0])
-        assert (x_size[2] == y_size[2] == 3)
+        assert (int(x_size[2]) == int(y_size[2]) == 3)
 
         chamfer_loss = []
 
         for i in range(x_size[0]):
 
             chamfer_loss.append(kal.metrics.point.chamfer_distance(x[i],y[i]))
+        chamfer_loss = torch.stack(chamfer_loss).mean()
+
+        return chamfer_loss
+
+
+class MaxChamferDistance(nn.Module):
+
+    def chamfer_distance(self, S1: torch.Tensor, S2: torch.Tensor,
+                         w1: float = 1., w2: float = 1.):
+
+
+        assert (S1.dim() == S2.dim()), 'S1 and S2 must have the same dimesionality'
+        assert (S1.dim() == 2), 'the dimensions of the input must be 2 '
+
+        dist_to_S2 = directed_distance(S1, S2)
+        dist_to_S1 = directed_distance(S2, S1)
+
+
+        return dist_to_S2, dist_to_S1
+
+    def forward(self, x, y):  # for example, x = batch,M,3 y = batch,M,3
+        #   compute chamfer distance between tow point clouds x and y
+
+        x_size = x.size()
+        y_size = y.size()
+        assert (x_size[0] == y_size[0])
+        assert (int(x_size[2]) == int(y_size[2]) == 3)
+
+        chamfer_loss = []
+
+        for i in range(x_size[0]):
+
+            chamfer_loss.append(max(self.chamfer_distance(x[i],y[i])))
         chamfer_loss = torch.stack(chamfer_loss).mean()
 
         return chamfer_loss

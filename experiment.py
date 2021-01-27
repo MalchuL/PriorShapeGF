@@ -13,7 +13,7 @@ from datasets import utils
 from datasets.SortedItemsDatasetWrapper import SortedItemsDatasetWrapper
 from datasets.preprocessed_dataset import PreprocessedPickleDataset
 from datasets.transformed_dataset import TransformedDataset
-from losses import ChamferDistance
+from losses import ChamferDistance, MaxChamferDistance
 from losses.losses import define_loss, define_loss_from_params
 from models import networks
 
@@ -24,6 +24,7 @@ import numpy as np
 from models.networks import define_encoder_from_params, define_decoder_from_params
 from registry import registry, registries
 from utils.point_cloud_utils import get_offsets, get_sigmas, get_prior
+from utils.pointcloud_sorting import sort_verts
 
 
 class ThreeDExperiment(pl.LightningModule):
@@ -43,7 +44,11 @@ class ThreeDExperiment(pl.LightningModule):
                         self.num_classes, dtype=np.float32))
         print(self.sigmas)
         self.create_model()
+        self.folding_loss = MaxChamferDistance()
         self.val_loss = ChamferDistance()
+
+        #self.sigmas_min = nn.Parameter(torch.ones(1), requires_grad=False)
+        #self.sigma_momentum = 0.1
 
     def get_scheduler(self, optimizer):
 
@@ -64,6 +69,7 @@ class ThreeDExperiment(pl.LightningModule):
     def create_model(self):
         self.encoder = define_encoder_from_params(self.hparams.encoder_params)
         self.decoder = define_decoder_from_params(self.hparams.decoder_params)
+        self.folding_decoder = define_decoder_from_params(self.hparams.folding_decoder_params)
 
     @staticmethod
     def get_nearest_point_sampling_config(point_count):
@@ -84,7 +90,11 @@ class ThreeDExperiment(pl.LightningModule):
         return TriangleConfig
 
     def get_transforms(self, name):
-        return None
+        def _sort_verts(data):
+            data['surface_points'] = np.array(sort_verts(data['surface_points']))
+            return data
+        return _sort_verts
+        #return None
 
     def prepare_data(self):
         config = self.get_nearest_point_sampling_config(self.hparams.points_count)
@@ -106,7 +116,7 @@ class ThreeDExperiment(pl.LightningModule):
 
     def reconstruction_loss(self, input_cloud, perturbed_points, y_pred, sigmas):
         bs, num_pts = input_cloud.size(0), input_cloud.size(1)
-        y_gtr = - (perturbed_points - input_cloud).view(bs, num_pts, -1)
+        y_gtr = - (perturbed_points - input_cloud)
 
         # The loss for each sigma is weighted
         lambda_sigma = 1. / sigmas.view(-1, 1, 1)
@@ -116,12 +126,14 @@ class ThreeDExperiment(pl.LightningModule):
     def training_step_end(self, outputs):
         out = outputs['out']
         batch_idx = 0
+        #print(out['folding_points'][batch_idx].view(1, -1, 3).shape)
         if self.global_step % self.hparams.log_point_cloud == 0:
             points_gt = out['input_point_cloud'][batch_idx]
-            self.log_point_cloud('train/' + 'input_point_cloud', points_gt.view(1, -1, 3))
-            points_pred = out['perturbed_points'][batch_idx] + out['y_pred'][batch_idx] * out['sigmas'][batch_idx].view(
-                -1, 1, 1)
-            self.log_point_cloud('train/' + 'predicted_point_cloud', points_pred.view(1, -1, 3))
+            self.log_point_cloud('train/' + 'input_point_cloud', points_gt.unsqueeze(0))
+            points_pred = out['perturbed_points'][batch_idx:batch_idx+1] + out['y_pred'][batch_idx:batch_idx+1]
+            self.log_point_cloud('train/' + 'predicted_point_cloud', points_pred)
+
+            self.log_point_cloud('train/' + 'folding_point_cloud', out['folding_points'][batch_idx].unsqueeze(0))
 
         return outputs
 
@@ -138,31 +150,43 @@ class ThreeDExperiment(pl.LightningModule):
         z_mu, z_sigma = self.encoder(input)
         z = z_mu + 0 * z_sigma
 
+        folded_points = self.folding_decoder(z)
+        folding_loss = self.folding_loss(folded_points, input)
+
+        #self.sigmas_min.data = self.sigma_momentum * torch.sqrt(self.folding_loss(folded_points, input)) + (1 - self.sigma_momentum) * self.sigmas_min.data
+
         perturbed_points = input + offsets * sigmas.view(-1, 1, 1)
         y_pred = self.forward(perturbed_points, z, sigmas)
 
-        loss = self.reconstruction_loss(input, perturbed_points, y_pred, sigmas)
+        reconstruction_loss = self.reconstruction_loss(input, perturbed_points, y_pred, sigmas)
+
+        loss = reconstruction_loss + folding_loss * self.hparams.trainer.folding_coef
 
         out = {'input_point_cloud': input,
                'y_pred': y_pred,
                'perturbed_points': perturbed_points,
+               'folding_points': folded_points,
                'sigmas': sigmas
                }
-        log = {'train/loss': loss, 'min':y_pred.min(), 'max':y_pred.max()}
+        log = {'train/loss': loss, 'folding_loss': folding_loss, 'reconstruction_loss': reconstruction_loss}
         return {'loss': loss, 'out': out, 'log': log, 'progress_bar': log}
 
     def validation_step(self, batch, batch_nb):
         if batch_nb == 0:
             input = batch[0]
             z, _ = self.encoder(input)
-            pred = self.langevin_dynamics(z, self.hparams.points_count, self.hparams.step_size_ratio,
+            prior_cloud = self.folding_decoder(z)
+            pred = self.langevin_dynamics(z, prior_cloud, self.hparams.points_count, self.hparams.step_size_ratio,
                                           self.hparams.num_steps,
                                           self.hparams.weight)
-            self.log_point_cloud('valid/' + 'input_point_cloud', input[0].view(1, -1, 3))
-            self.log_point_cloud('valid/' + 'pred_point_cloud', pred[0].view(1, -1, 3))
+            print(pred.shape)
+            self.log_point_cloud('valid/' + 'input_point_cloud', input[0].unsqueeze(0))
+            self.log_point_cloud('valid/' + 'pred_point_cloud', pred[0].unsqueeze(0))
+            self.log_point_cloud('valid/' + 'folding_point_cloud', prior_cloud[0].unsqueeze(0))
 
         z, _ = self.encoder(batch[0])
-        pred = self.langevin_dynamics(z, self.hparams.points_count, self.hparams.step_size_ratio,
+        prior_cloud = self.folding_decoder(z)
+        pred = self.langevin_dynamics(z, prior_cloud, self.hparams.points_count, self.hparams.step_size_ratio,
                                       self.hparams.num_steps,
                                       self.hparams.weight)
         loss = self.val_loss(batch[0], pred )
@@ -171,12 +195,23 @@ class ThreeDExperiment(pl.LightningModule):
         self.log_dict(log, prog_bar=True, on_step=True, on_epoch=True)
 
 
-    def langevin_dynamics(self, z, num_points=2048, step_size_ratio=1, num_steps=5, weight=1):
+    def langevin_dynamics(self, z, prior_cloud, num_points=2048, step_size_ratio=1, num_steps=10, weight=1):
         with torch.no_grad():
             sigmas = self.sigmas
             x_list = []
             self.decoder.eval()
-            x = get_prior(z.size(0), num_points, self.hparams.decoder_params.dim)
+            current_points = prior_cloud.shape[1]
+            copies = []
+            while current_points < num_points:
+                if current_points + prior_cloud.shape[1] > num_points:
+                    copy = prior_cloud[:,:num_points - current_points,:]
+                else:
+                    copy = prior_cloud
+                current_points += copy.shape[1]
+                copies.append(copy)
+            assert current_points >= num_points
+
+            x = torch.cat([prior_cloud, *copies], dim=1)
             x = x.to(z)
             x_list.append(x.clone())
             for sigma in sigmas:
@@ -195,7 +230,7 @@ class ThreeDExperiment(pl.LightningModule):
 
 
     def configure_optimizers(self):
-        params = itertools.chain(self.encoder.parameters(), self.decoder.parameters())
+        params = itertools.chain(self.encoder.parameters(), self.decoder.parameters(), self.folding_decoder.parameters())
         optimizer = registries.OPTIMIZERS.get_from_params(**{'params': params, **self.hparams.optimizer_params})
 
         return [optimizer], [self.get_scheduler(optimizer)]

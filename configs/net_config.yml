@@ -4,11 +4,11 @@ num_epochs: &num_epochs 1000
 train_steps_limit: 1000
 val_steps_limit: 10
 
-lr: &lr 0.001
+lr: &lr 0.0001
 weight_decay: &wd 0.0
 finetune_lr: &finetune_lr 0.0001
 
-points_count: 2048
+points_count: &points_count 2048
 step_size_ratio: 1
 num_steps: 10
 weight: 1
@@ -19,23 +19,25 @@ log_point_cloud: 100
 check_val_every_n_epoch: 2
 
 trainer:
-  sigma_begin: 0.3
-  sigma_end: 0.01
+  sigma_begin: 0.05
+  sigma_end: 0.005
   sigma_num: 10
+
+  folding_coef: 10
 
 
 
 #  TODO если есть get_from_params тогда передаст в них, иначе вызовет как конструктор
 encoder_params:
-  model: ShapeGFEncoder
-  zdim: 128
-  use_deterministic_encoder: True
-  input_dim: 3
+  model: PointNet2Featurizer
+  out_features: 128
+  in_features: 0
+  batchnorm: False
 
 
 decoder_params:
   model: ShapeGFConditionalDecoder
-  z_dim: 128
+  z_dim: &z_dim 128
   dim: 3
   out_dim: 3
   hidden_size: 256
@@ -43,9 +45,15 @@ decoder_params:
   sigma_condition: True
 
 
+folding_decoder_params:
+  model: FoldingNetDec3dSphere
+  input_features: *z_dim
+  #output_points: *points_count
+
+
 data_params:
   num_workers: 8
-  batch_size: 16
+  batch_size: 12
 
   train_dataset_path: /home/malchul/work/projects/3d_reconstruction/CustomShapeGF/data/shapenet_sampled/train
   val_dataset_path: /home/malchul/work/projects/3d_reconstruction/CustomShapeGF/data/shapenet_sampled/test
