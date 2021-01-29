@@ -169,7 +169,7 @@ class ThreeDExperiment(pl.LightningModule):
                'folding_points': folded_points,
                'sigmas': sigmas
                }
-        log = {'train/loss': loss, 'min': input.max(), 'min': input.min(), 'folding_loss': folding_loss,
+        log = {'train/loss': loss, 'max': input.max(), 'min': input.min(), 'folding_loss': folding_loss,
                'reconstruction_loss': reconstruction_loss, 'grid_coef': grid_coef}
         return {'loss': loss, 'out': out, 'log': log, 'progress_bar': log}
 
