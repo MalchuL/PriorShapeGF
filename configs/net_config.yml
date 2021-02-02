@@ -58,8 +58,8 @@ data_params:
   num_workers: 8
   batch_size: 12
 
-  train_dataset_path: /home/malchul/work/projects/3d_reconstruction/CustomShapeGF/data/shapenet_sampled/train
-  val_dataset_path: /home/malchul/work/projects/3d_reconstruction/CustomShapeGF/data/shapenet_sampled/test
+  train_dataset_path: /media/malchul/Новый том/Downloads_Ubuntu/ShapeNetCore.v2.PC15k/04379243
+  val_dataset_path: /media/malchul/Новый том/Downloads_Ubuntu/ShapeNetCore.v2.PC15k/04379243
 
 
 scheduler_params:

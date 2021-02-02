@@ -12,6 +12,7 @@ import torch.nn as nn
 from datasets import utils
 from datasets.SortedItemsDatasetWrapper import SortedItemsDatasetWrapper
 from datasets.preprocessed_dataset import PreprocessedPickleDataset
+from datasets.sampled_shapenetv2 import SampledShapeNetV2Dataset
 from datasets.transformed_dataset import TransformedDataset
 from losses import ChamferDistance, MaxChamferDistance
 from losses.losses import define_loss, define_loss_from_params
@@ -94,12 +95,12 @@ class ThreeDExperiment(pl.LightningModule):
 
     def prepare_data(self):
         config = self.get_nearest_point_sampling_config(self.hparams.points_count)
-        use_embedding = False
+
         self.train_dataset = SortedItemsDatasetWrapper(items=['surface_points'], dataset=TransformedDataset(
-            PreprocessedPickleDataset(self.hparams.data_params.train_dataset_path, config, use_embedding=use_embedding),
+            SampledShapeNetV2Dataset(config, self.hparams.data_params.train_dataset_path, 'train'),
             self.get_transforms('train')))
         self.val_dataset = SortedItemsDatasetWrapper(items=['surface_points'], dataset=TransformedDataset(
-            PreprocessedPickleDataset(self.hparams.data_params.val_dataset_path, config, use_embedding=use_embedding),
+            SampledShapeNetV2Dataset(config, self.hparams.data_params.val_dataset_path, 'val'),
             self.get_transforms('valid')))
 
     def forward(self, perturbed_points, z, sigma):
