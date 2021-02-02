@@ -131,20 +131,21 @@ def fibonacci_sphere(batch_size, samples=1, r=1.0):
 
 
 class FoldingNetDec3dSphere(nn.Module):
-    def __init__(self, input_features):
+    def __init__(self, input_features, samples=2048):
         super(FoldingNetDec3dSphere, self).__init__()
         self.fold1 = FoldingNetDecFold(input_features, [3,3])
         self.fold2 = FoldingNetDecFold(input_features, [3,3])
 
+        self.samples = samples
+
     def forward(self, x):  # input x = batch, 512
-        samples = 2048
         batch_size = x.size(0)
         x = torch.unsqueeze(x, 1)  # x = batch,1,512
-        x = x.repeat(1, samples, 1)  # x = batch,45^2,512
+        x = x.repeat(1, self.samples, 1)  # x = batch,45^2,512
         code = x
         code = x.transpose(2, 1)  # x = batch,512,45^2
 
-        grid = fibonacci_sphere(batch_size, samples)  # grid = batch,13^3,2
+        grid = fibonacci_sphere(batch_size, self.samples)  # grid = batch,13^3,2
         grid = torch.from_numpy(grid)
 
         if x.is_cuda:

@@ -194,7 +194,7 @@ class ThreeDExperiment(pl.LightningModule):
         loss = self.val_loss(batch[0], pred )
         #print('valid/chamfer_distance', loss)
         log = {'valid/chamfer_distance': loss}
-        self.log_dict(log, prog_bar=True, on_step=True, on_epoch=True)
+        self.log_dict(log, prog_bar=True, on_step=False, on_epoch=True)
 
 
     def langevin_dynamics(self, z, prior_cloud, num_points=2048, step_size_ratio=1, num_steps=10, weight=1):

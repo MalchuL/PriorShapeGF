@@ -14,7 +14,7 @@ def main(cfg):
 
     logger = TensorBoardLogger("logs")
     checkpoint_callback = ModelCheckpoint(
-        filepath='checkpoints/model_last.ckpt',
+        filepath='checkpoints/model_best.ckpt',
         verbose=True,
         monitor='valid/chamfer_distance_epoch',
         mode='min'
