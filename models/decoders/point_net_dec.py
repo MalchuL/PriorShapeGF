@@ -32,5 +32,5 @@ class PointNetDecoder(nn.Module):
 
         x = x.view(-1, self.output_points, 3)
 
-        return x
+        return x, x, x
 

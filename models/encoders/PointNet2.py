@@ -1146,18 +1146,24 @@ class PointNet2Featurizer(nn.Module):
         return self.out_feature(out), 1
 
 
+
+class FeatureMax(nn.Module):
+    def forward(self, x):
+        out, _ = x.max(2)
+        return out
+
 class FeatureMasking(nn.Module):
     def __init__(self, features_size):
         super().__init__()
 
         self.features_preprocess = []
-        for _ in range(1):
+        for _ in range(3):
             self.features_preprocess += [BasicBlock(features_size, features_size, norm_layer=False)]
         self.features_preprocess = nn.Sequential(*self.features_preprocess)
 
 
         self.features_masking = []
-        for _ in range(1):
+        for _ in range(3):
             self.features_masking += [BasicBlock(features_size, features_size, norm_layer=False)]
         self.features_masking += [nn.Conv1d(features_size, features_size, 1)]
         self.features_masking = nn.Sequential(*self.features_masking)

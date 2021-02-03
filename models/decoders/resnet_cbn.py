@@ -23,7 +23,7 @@ class CBatchNorm1d(nn.Module):
         elif norm_method == 'instance_norm':
             self.bn = nn.InstanceNorm1d(f_dim, affine=False)
         elif norm_method == 'group_norm':
-            self.bn = nn.GroupNorm(f_dim, affine=False)
+            self.bn = nn.GroupNorm(32, f_dim, affine=False)
         else:
             raise ValueError('Invalid normalization method!')
         self.reset_parameters()
@@ -128,7 +128,7 @@ class ShapeGFConditionalDecoder(nn.Module):
         xyz_condition: True
     """
 
-    def __init__(self, z_dim, dim, out_dim, hidden_size, n_blocks, sigma_condition):
+    def __init__(self, z_dim, dim, out_dim, hidden_size, n_blocks, sigma_condition, norm_method='batch_norm'):
         super().__init__()
         self.z_dim = z_dim = z_dim
         self.dim = dim
@@ -145,10 +145,10 @@ class ShapeGFConditionalDecoder(nn.Module):
         # Input: xyz + latent code (+1 if use sigma)
         self.conv_p = nn.Conv1d(c_dim, hidden_size, 1)
         self.blocks = nn.ModuleList([
-            CResnetBlockConv1d(c_dim, hidden_size) for i in range(n_blocks)
+            CResnetBlockConv1d(c_dim, hidden_size, norm_method=norm_method) for i in range(n_blocks)
         ])
 
-        self.bn = CBatchNorm1d(c_dim, hidden_size)
+        self.bn = CBatchNorm1d(c_dim, hidden_size, norm_method=norm_method)
         self.conv_out = nn.Conv1d(hidden_size, out_dim, 1)
         self.actvn = nn.ReLU()
 

@@ -112,3 +112,32 @@ class MaxChamferDistance(nn.Module):
         chamfer_loss = torch.stack(chamfer_loss).mean()
 
         return chamfer_loss
+
+
+
+class MaxDistance(nn.Module):
+
+
+
+    def chamfer_distance(self, S1: torch.Tensor, S2: torch.Tensor,
+                         w1: float = 1., w2: float = 1.):
+        # Nx3
+        assert (S1.dim() == S2.dim()), 'S1 and S2 must have the same dimesionality'
+        assert (S1.dim() == 2), 'the dimensions of the input must be 2 '
+
+        dist_to_S2 = directed_distance(S1, S2, mean=False)
+        dist_to_S1 = directed_distance(S2, S1, mean=False)
+
+
+        return torch.sqrt(torch.max(dist_to_S2)), torch.sqrt(torch.max(dist_to_S1))
+
+    def forward(self, x, y):  # for example, x = batch,M,3 y = batch,M,3
+
+
+        max_loss = []
+        x_size = x.size()
+        for i in range(x_size[0]):
+            max_loss.append(max(self.chamfer_distance(x[i], y[i])))
+        max_loss = torch.stack(max_loss).mean()
+
+        return max_loss
