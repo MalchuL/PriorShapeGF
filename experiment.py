@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytorch_lightning as pl
 import torchvision
+from kaolin.metrics import SidedDistance
 from torch import optim
 from torch.optim import lr_scheduler
 from torch.utils.data import DataLoader
@@ -151,6 +152,13 @@ class ThreeDExperiment(pl.LightningModule):
                         np.log(sigma_end),
                         self.num_classes, dtype=np.float32))
 
+    def get_nearest_points(self, perturbed_points, input):
+        sided_minimum_dist = SidedDistance()
+        closest_index_in_S2 = sided_minimum_dist(
+            perturbed_points, input)
+        closest_S2 = torch.stack([torch.index_select(input[i], 0, closest_index_in_S2[i]) for i in range(input.shape[0])])
+        return closest_S2
+
     def training_step(self, batch, batch_idx):
 
         input = batch[0]
@@ -176,14 +184,17 @@ class ThreeDExperiment(pl.LightningModule):
         grid_coef = 0
         if self.global_step < self.hparams.trainer.folding_grid_steps:
             grid_coef = self.hparams.trainer.folding_grid_coef * (1 - self.global_step / self.hparams.trainer.folding_grid_steps)
-            folding_loss += grid_coef *  (self.identity_folding_loss(folded_points, grid) + self.identity_folding_loss(folded_points_first, grid))
+            folding_loss += grid_coef * (self.identity_folding_loss(folded_points, grid) + self.identity_folding_loss(folded_points_first, grid))
 
         #self.sigmas_min.data = self.sigma_momentum * torch.sqrt(self.folding_loss(folded_points, input)) + (1 - self.sigma_momentum) * self.sigmas_min.data
 
         perturbed_points = input + offsets * sigmas.view(-1, 1, 1)
         y_pred = self.forward(perturbed_points, z, sigmas)
 
-        reconstruction_loss = self.reconstruction_loss(input, perturbed_points, y_pred, sigmas)
+        with torch.no_grad():
+            input_nearest = self.get_nearest_points(perturbed_points, input)
+
+        reconstruction_loss = self.reconstruction_loss(input_nearest, perturbed_points, y_pred, sigmas)
 
         loss = reconstruction_loss + folding_loss
 
