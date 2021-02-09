@@ -51,6 +51,7 @@ class ThreeDExperiment(pl.LightningModule):
         self.identity_folding_loss = nn.MSELoss()
         self.val_loss = ChamferDistance()
 
+        self.sigma_best = nn.Parameter(torch.ones(1) * self.sigma_begin)
         self.sigma_begin = nn.Parameter(torch.ones(1) * self.sigma_begin)
         self.sigma_loss = MaxDistance()
 
@@ -143,7 +144,7 @@ class ThreeDExperiment(pl.LightningModule):
         self.logger.experiment.add_mesh(name, point_cloud, global_step=self.global_step)
 
     def update_sigmas(self):
-        sigma_begin = self.sigma_begin.data.detach().item()
+        sigma_begin = self.sigma_best.data.detach().item()
         sigma_end = sigma_begin / self.hparams.trainer.sigma_denominator
         self.sigmas = np.exp(
             np.linspace(np.log(sigma_begin),
@@ -166,7 +167,8 @@ class ThreeDExperiment(pl.LightningModule):
         max_distance = self.sigma_loss(folded_points, input)
         clipped_distance = torch.min(torch.ones(1).to(z.device) * self.hparams.trainer.sigma_begin, max_distance)
         self.sigma_begin.data = self.sigma_momentum * clipped_distance + (1 - self.sigma_momentum) * self.sigma_begin.data
-        if (self.global_step + 1) % self.hparams.trainer.update_sigmas_step == 0:
+        if (self.global_step + 1) % self.hparams.trainer.update_sigmas_step == 0 and self.sigma_begin.data.item() < self.sigma_best.data.item() * self.hparams.trainer.sigma_decrease_coef:
+            self.sigma_best.data = self.sigma_best.data * self.hparams.trainer.sigma_decrease_coef
             self.update_sigmas()
             print('new_sigmas is', self.sigmas)
 
@@ -192,11 +194,12 @@ class ThreeDExperiment(pl.LightningModule):
                'sigmas': sigmas
                }
         log = {'train/loss': loss, 'max': input.max(), 'min': input.min(), 'folding_loss': folding_loss,
-               'reconstruction_loss': reconstruction_loss, 'grid_coef': grid_coef, 'sigmas': max_distance}
+               'reconstruction_loss': reconstruction_loss, 'grid_coef': grid_coef, 'sigmas': self.sigma_begin.data.item()}
         return {'loss': loss, 'out': out, 'log': log, 'progress_bar': log}
 
     def validation_step(self, batch, batch_nb):
         self.update_sigmas()
+        print(self.sigmas)
         if batch_nb == 0:
             input = batch[0]
             z, _ = self.encoder(input)

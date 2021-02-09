@@ -25,6 +25,7 @@ trainer:
 
   sigma_momentum: 0.05
   update_sigmas_step: 100
+  sigma_decrease_coef: 0.9
 
   folding_coef: 10
   folding_first_coef: 1
