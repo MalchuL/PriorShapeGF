@@ -5,20 +5,26 @@ import math
 from functools import lru_cache as cache
 
 class FoldingNetDecFold(nn.Module):
-    def __init__(self, input_features, point_dim=[2,3]):
+    def __init__(self, input_features, point_dim=[2,3], hidden_size=512, return_code=False):
         super(FoldingNetDecFold, self).__init__()
-        self.conv1 = nn.Conv1d(input_features + point_dim[0], 512, 1)
-        self.conv2 = nn.Conv1d(512, 512, 1)
-        self.conv3 = nn.Conv1d(512, point_dim[1], 1)
+        self.return_code = return_code
+        self.conv1 = nn.Conv1d(input_features + point_dim[0], hidden_size, 1)
+        self.conv2 = nn.Conv1d(hidden_size, hidden_size, 1)
+        self.conv3 = nn.Conv1d(hidden_size, hidden_size, 1)
+        self.conv4 = nn.Conv1d(hidden_size, point_dim[1], 1)
 
         self.relu = nn.ReLU()
 
     def forward(self, x):  # input x = batch,514,45^2
         x = self.relu(self.conv1(x))  # x = batch,512,45^2
         x = self.relu(self.conv2(x))
-        x = self.conv3(x)
-
-        return x
+        x = self.relu(self.conv3(x))
+        code = x
+        x = self.conv4(x)
+        if self.return_code:
+            return x, code
+        else:
+            return x
 
 
 
@@ -131,10 +137,10 @@ def fibonacci_sphere(batch_size, samples=1, r=1.0):
 
 
 class FoldingNetDec3dSphere(nn.Module):
-    def __init__(self, input_features, samples=2048, r=1.0):
+    def __init__(self, input_features, samples=2048, r=1.0, hidden_size=512):
         super(FoldingNetDec3dSphere, self).__init__()
-        self.fold1 = FoldingNetDecFold(input_features, [3,3])
-        self.fold2 = FoldingNetDecFold(input_features, [3,3])
+        self.fold1 = FoldingNetDecFold(input_features, [3,3], hidden_size, return_code=True)
+        self.fold2 = FoldingNetDecFold(input_features + hidden_size, [3+3,3])
 
         self.r = r
         self.samples = samples
@@ -155,10 +161,10 @@ class FoldingNetDec3dSphere(nn.Module):
         x = torch.cat((x, grid), 2)  # x = batch,45^2,514
         x = x.transpose(2, 1)  # x = batch,514,45^2
 
-        x = self.fold1(x)  # x = batch,3,45^2
+        x, new_code = self.fold1(x)  # x = batch,3,45^2
         p1 = x.transpose(2, 1).clone()  # to observe
 
-        x = torch.cat((code, x), 1)  # x = batch,515,45^2
+        x = torch.cat((code, new_code, x, grid.transpose(2, 1)), 1)  # x = batch,515,45^2
 
         x = self.fold2(x)  # x = batch,3,45^2
         x = x.transpose(2, 1)  # x = batch,45^2,3

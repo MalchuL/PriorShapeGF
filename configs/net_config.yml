@@ -58,6 +58,7 @@ folding_decoder_params:
   input_features: *z_dim
   samples: *points_count
   r: 1.0
+  hidden_size: 1024
   #output_points: *points_count
 
 
