@@ -14,10 +14,12 @@ def main(cfg):
 
     logger = TensorBoardLogger("logs")
     checkpoint_callback = ModelCheckpoint(
-        filepath='checkpoints/model_best.ckpt',
         verbose=True,
         monitor='valid/chamfer_distance_epoch',
-        mode='min'
+        mode='min',
+        save_top_k=3,
+        save_last=True,
+        filepath='model_ep-{epoch}_cd_full-{valid_chamfer_distance}_small_cd-{valid_chamfer_distance_small}'
     )
 
     trainer = Trainer(gpus=1 , max_epochs=cfg.num_epochs, logger=logger,

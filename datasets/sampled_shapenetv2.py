@@ -12,6 +12,8 @@ class SampledShapeNetV2Dataset(Dataset):
 
     PATTERN = '*.npy'
 
+    ALL_POINTS = 'all_points'
+
     def __init__(self, mesh_sampler_config, root_dir, split, is_single_class=False, use_all_points=False):
         self.root_dir = root_dir
         self.is_single_class = is_single_class
@@ -48,6 +50,8 @@ class SampledShapeNetV2Dataset(Dataset):
             choises = np.random.choice(data.shape[0], size=sample_count, replace=False)
             result[self.mesh_sampler_config.sample_points] = data[choises].astype(np.float32)
 
+        all_samples_choises = np.random.choice(data.shape[0], size=self.mesh_sampler_config.all_points_count, replace=False)
+        result[self.mesh_sampler_config.all_points] = data[all_samples_choises].astype(np.float32)
 
         return result
 
