@@ -35,6 +35,17 @@ class SampledShapeNetV2Dataset(Dataset):
     def __len__(self):
         return len(self.indexes)
 
+    def normalize_points_1_1(self, point_cloud):
+        center = 0.5 * (point_cloud.max(axis=0) + point_cloud.min(axis=0))
+        scale = (point_cloud.max(axis=0) - point_cloud.min(axis=0)).max() * 0.5
+        norm_vert = (point_cloud - center) / scale
+        return norm_vert
+
+    def normalize_points_radius_1(self, point_cloud):
+        center = 0.5 * (point_cloud.max(axis=0) + point_cloud.min(axis=0))
+        scale = np.sqrt(((point_cloud.max(axis=0) - point_cloud.min(axis=0)) ** 2).sum()) * 0.5
+        norm_vert = (point_cloud - center) / scale
+        return norm_vert
 
     def __getitem__(self, idx):
 
@@ -42,6 +53,7 @@ class SampledShapeNetV2Dataset(Dataset):
 
         # Data in [Nx3] N == 15000
         data = np.load(self.indexes[idx])
+        #data = self.normalize_points_radius_1(data)
 
         if self.use_all_points:
             result[self.mesh_sampler_config.sample_points] = data.astype(np.float32)

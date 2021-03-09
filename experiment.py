@@ -236,22 +236,62 @@ class ThreeDExperiment(pl.LightningModule):
                                       self.hparams.num_steps,
                                       self.hparams.weight)
         loss = self.val_loss(batch[0], pred )
+        if not torch.all(torch.isfinite(loss)):
+            loss = torch.ones(1).mean().to(pred.device)
         #print('valid/chamfer_distance', loss)
         self.log('valid_chamfer_distance', loss, prog_bar=True)
 
         ids = torch.randperm(batch[0].shape[1])[:self.hparams.trainer.valid_chamfer_points]
         small_input = batch[0][:, ids, :]
-        ids = torch.randperm(prior_cloud.shape[1])[:self.hparams.trainer.valid_chamfer_points]
-        small_prior_cloud = prior_cloud[:, ids, :]
-        small_pred = self.langevin_dynamics(z, small_prior_cloud, self.hparams.trainer.valid_chamfer_points, self.hparams.step_size_ratio,
-                                      self.hparams.num_steps,
-                                      self.hparams.weight)
+        ids = torch.randperm(pred.shape[1])[:self.hparams.trainer.valid_chamfer_points]
+        small_pred = pred[:, ids, :]
 
         small_loss = self.val_loss(small_input, small_pred)
+        if not torch.all(torch.isfinite(small_loss)):
+            small_loss = torch.ones(1).mean().to(small_pred.device)
         self.log('valid_chamfer_distance_small', small_loss, prog_bar=True)
 
         log = {'valid/chamfer_distance': loss}
         self.log_dict(log, prog_bar=False, on_step=True, on_epoch=True)
+
+    def test_step(self, batch, batch_nb):
+        self.update_sigmas()
+        print(self.sigmas)
+
+        def log_point_cloud(name, point_cloud, step):
+            self.logger.experiment.add_mesh(name, point_cloud, global_step=step)
+
+        input = batch[0]
+        z, _ = self.encoder(input)
+        prior_cloud, _, _ = self.folding_decoder(z)
+        pred = self.langevin_dynamics(z, prior_cloud, self.hparams.valid_points_count, self.hparams.step_size_ratio,
+                                      self.hparams.num_steps,
+                                      self.hparams.weight)
+        print(input.shape, pred.shape)
+        for i in range(pred.shape[0]):
+            step = batch_nb * input.shape[0] + i
+            log_point_cloud('valid/' + 'input_point_cloud', input[i].unsqueeze(0), step)
+            log_point_cloud('valid/' + 'pred_point_cloud', pred[i].unsqueeze(0), step)
+            log_point_cloud('valid/' + 'folding_point_cloud', prior_cloud[i].unsqueeze(0), step)
+
+            ids = torch.randperm(input.shape[1])[:self.hparams.trainer.valid_chamfer_points]
+            log_point_cloud('valid/' + 'input_small', input[:, ids, :][i].unsqueeze(0), step)
+            ids = torch.randperm(pred.shape[1])[:self.hparams.trainer.valid_chamfer_points]
+            log_point_cloud('valid/' + 'folding_point_cloud_small', pred[:, ids, :][i].unsqueeze(0), step)
+
+        loss = self.val_loss(batch[0], pred)
+        # print('valid/chamfer_distance', loss)
+        self.log('valid_chamfer_distance', loss, prog_bar=True)
+
+        self.logger.experiment.add_scalar('valid_chamfer_distance', loss, batch_nb)
+
+        ids = torch.randperm(batch[0].shape[1])[:self.hparams.trainer.valid_chamfer_points]
+        small_input = batch[0][:, ids, :]
+        ids = torch.randperm(pred.shape[1])[:self.hparams.trainer.valid_chamfer_points]
+        small_pred = pred[:, ids, :]
+
+        small_loss = self.val_loss(small_input, small_pred)
+        self.log('valid_chamfer_distance_small', small_loss, prog_bar=True)
 
 
     def langevin_dynamics(self, z, prior_cloud, num_points=2048, step_size_ratio=1, num_steps=10, weight=1):
@@ -295,9 +335,16 @@ class ThreeDExperiment(pl.LightningModule):
 
     def val_dataloader(self):
         return DataLoader(self.val_dataset,
-                          batch_size=1,
+                          batch_size=self.hparams.val_batch_size,
                           shuffle=True,
-                          drop_last=True,
+                          drop_last=False,
+                          num_workers=self.hparams.data_params.num_workers)
+
+    def test_dataloader(self):
+        return DataLoader(self.val_dataset,
+                          batch_size=self.hparams.val_batch_size,
+                          shuffle=True,
+                          drop_last=False,
                           num_workers=self.hparams.data_params.num_workers)
 
     def train_dataloader(self):

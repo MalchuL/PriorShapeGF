@@ -2,22 +2,23 @@ checkpoint_path: null
 
 num_epochs: &num_epochs 1000
 train_steps_limit: 1000
-val_steps_limit: 10
+val_steps_limit: 1.0
+val_batch_size: 20
 
 lr: &lr 0.0002
-weight_decay: &wd 0.000001
+weight_decay: &wd 0.0
 
 points_count: &points_count 4096
 valid_points_count: 15000
 nearest_points_count: 15000
 step_size_ratio: 1
-num_steps: 10
+num_steps: 1
 weight: 1.1
 
 
 log_freq: 10
 log_point_cloud: 100
-check_val_every_n_epoch: 2
+check_val_every_n_epoch: 30
 
 trainer:
   sigma_begin: 0.1

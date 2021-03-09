@@ -50,7 +50,7 @@ import kaolin.cuda.ball_query
 import kaolin.cuda.furthest_point_sampling
 import kaolin.cuda.three_nn
 
-from .resnet import BasicBlockReLU as BasicBlock
+from .resnet import BasicBlockLeakyReLU as BasicBlock
 
 
 class PointNetFeatureExtractor(nn.Module):
@@ -1153,18 +1153,18 @@ class FeatureMax(nn.Module):
         return out
 
 class FeatureMasking(nn.Module):
-    def __init__(self, features_size):
+    def __init__(self, features_size, norm_layer=False):
         super().__init__()
 
         self.features_preprocess = []
         for _ in range(3):
-            self.features_preprocess += [BasicBlock(features_size, features_size, norm_layer=False)]
+            self.features_preprocess += [BasicBlock(features_size, features_size, norm_layer=norm_layer)]
         self.features_preprocess = nn.Sequential(*self.features_preprocess)
 
 
         self.features_masking = []
         for _ in range(3):
-            self.features_masking += [BasicBlock(features_size, features_size, norm_layer=False)]
+            self.features_masking += [BasicBlock(features_size, features_size, norm_layer=norm_layer)]
         self.features_masking += [nn.Conv1d(features_size, features_size, 1)]
         self.features_masking = nn.Sequential(*self.features_masking)
 

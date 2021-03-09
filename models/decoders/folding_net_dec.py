@@ -13,7 +13,7 @@ class FoldingNetDecFold(nn.Module):
         self.conv3 = nn.Conv1d(hidden_size, hidden_size, 1)
         self.conv4 = nn.Conv1d(hidden_size, point_dim[1], 1)
 
-        self.relu = nn.ReLU()
+        self.relu = nn.LeakyReLU(inplace=True)
 
     def forward(self, x):  # input x = batch,514,45^2
         x = self.relu(self.conv1(x))  # x = batch,512,45^2
