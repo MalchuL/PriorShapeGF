@@ -1,3 +1,6 @@
-trimesh==3.2.39
+trimesh==3.6.0
 rtree
 kaolin==0.1.0
+pytorch-lightning==1.0.3
+torch==1.6.0
+performer-pytorch

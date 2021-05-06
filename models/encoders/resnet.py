@@ -136,10 +136,10 @@ class BasicBlockGN(nn.Module):
         # Both self.conv1 and self.downsample layers downsample the input when stride != 1
         self.conv1 = conv1x1(inplanes, planes)
         self.bn1 = norm_layer(planes)
-        self.relu1 = nn.ReLU()
+        self.relu1 = nn.LeakyReLU(inplace=True)
         self.conv2 = conv1x1(planes, planes)
         self.bn2 = norm_layer(planes)
-        self.relu2 = nn.ReLU()
+        self.relu2 = nn.LeakyReLU(inplace=True)
         self.downsample = downsample
 
         self.inplanes = inplanes

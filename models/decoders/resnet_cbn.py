@@ -1,3 +1,5 @@
+import math
+
 import torch
 import torch.nn as nn
 
@@ -150,6 +152,10 @@ class ShapeGFConditionalDecoder(nn.Module):
 
         self.bn = CBatchNorm1d(c_dim, hidden_size, norm_method=norm_method)
         self.conv_out = nn.Conv1d(hidden_size, out_dim, 1)
+
+        init_std = 0.01
+        torch.nn.init.normal_(self.conv_out.weight, 0, 1/math.sqrt(self.conv_out.weight.shape[1]) * init_std)
+
         self.actvn = nn.ReLU()
 
     def forward(self, x, c):

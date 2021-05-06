@@ -97,7 +97,7 @@ class ThreeDExperiment(pl.LightningModule):
 
     def get_transforms(self, name):
         def _sort_verts(data):
-            data['surface_points'] = np.array(sort_verts(data['surface_points']))
+            #data['surface_points'] = np.array(sort_verts(data['surface_points']))
             return data
         return _sort_verts
         #return None
@@ -317,12 +317,13 @@ class ThreeDExperiment(pl.LightningModule):
             for sigma in sigmas:
                 sigma = torch.ones((1,)).cuda() * sigma
                 z_sigma = torch.cat((z, sigma.expand(z.size(0), 1)), dim=1)
-                step_size = sigma ** 2 * step_size_ratio
+                step_size = 2 * sigma ** 2 * step_size_ratio
                 for t in range(num_steps):
                     z_t = torch.randn_like(x) * weight
                     x += torch.sqrt(step_size) * z_t
                     grad = self.decoder(x, z_sigma)
-                    x += grad * step_size_ratio
+                    grad = grad / sigma ** 2
+                    x += 0.5 * step_size * grad
                 #print('max/min for sigma', sigma, ':',x.max(),'/',x.min())
         return x
 

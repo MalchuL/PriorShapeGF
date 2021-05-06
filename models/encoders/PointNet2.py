@@ -50,7 +50,7 @@ import kaolin.cuda.ball_query
 import kaolin.cuda.furthest_point_sampling
 import kaolin.cuda.three_nn
 
-from .resnet import BasicBlockLeakyReLU as BasicBlock
+from .resnet import BasicBlockGN as BasicBlock
 
 
 class PointNetFeatureExtractor(nn.Module):

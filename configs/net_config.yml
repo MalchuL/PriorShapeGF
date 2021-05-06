@@ -13,7 +13,7 @@ valid_points_count: 15000
 nearest_points_count: 15000
 step_size_ratio: 1
 num_steps: 1
-weight: 1.1
+weight: 1.0
 
 
 log_freq: 10
@@ -55,7 +55,7 @@ decoder_params:
   hidden_size: 256
   n_blocks: 16
   sigma_condition: True
-  norm_method: batch_norm
+  norm_method: group_norm
 
 folding_decoder_params:
   model: FoldingNetDec3dSphere
@@ -86,7 +86,11 @@ optimizer_params:
   weight_decay: *wd
 
 
+exp_name: &exp_name "ShapeGF_train"
 
+hydra:
+  run:
+    dir: ./outputs/${now:%Y-%m-%d}/ShapeGF_${now:%H-%M-%S}_${exp_name}
 
 
 
