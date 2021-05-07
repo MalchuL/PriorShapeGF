@@ -19,7 +19,7 @@ def main(cfg):
         mode='min',
         save_top_k=3,
         save_last=True,
-        filepath='model_ep-{epoch}_cd_full-{valid_chamfer_distance}_small_cd-{valid_chamfer_distance_small}'
+        filename='model_ep-{epoch}_cd_full-{valid_chamfer_distance}_small_cd-{valid_chamfer_distance_small}'
     )
 
     trainer = Trainer(gpus=1 , max_epochs=cfg.num_epochs, logger=logger,

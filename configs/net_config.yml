@@ -1,24 +1,24 @@
 checkpoint_path: null
 
-num_epochs: &num_epochs 1000
+num_epochs: &num_epochs 2000
 train_steps_limit: 1000
 val_steps_limit: 1.0
-val_batch_size: 20
+val_batch_size: 32
 
 lr: &lr 0.0002
 weight_decay: &wd 0.0
 
-points_count: &points_count 4096
+points_count: &points_count 2048
 valid_points_count: 15000
 nearest_points_count: 15000
 step_size_ratio: 1
-num_steps: 1
+num_steps: 2
 weight: 1.0
 
 
 log_freq: 10
 log_point_cloud: 100
-check_val_every_n_epoch: 30
+check_val_every_n_epoch: 60
 
 trainer:
   sigma_begin: 0.1
@@ -42,19 +42,18 @@ trainer:
 #  TODO если есть get_from_params тогда передаст в них, иначе вызовет как конструктор
 encoder_params:
   model: PointNet2Featurizer
-  out_features: &z_dim 512
+  out_features: &z_dim 128
   in_features: 0
   batchnorm: False
 
 
 decoder_params:
-  model: ShapeGFConditionalDecoder
+  model: ShapeGFDecoder
   z_dim: *z_dim
   dim: 3
   out_dim: 3
   hidden_size: 256
-  n_blocks: 16
-  sigma_condition: True
+  n_blocks: 24
   norm_method: group_norm
 
 folding_decoder_params:
@@ -68,7 +67,7 @@ folding_decoder_params:
 
 data_params:
   num_workers: 8
-  batch_size: 8
+  batch_size: 16
 
   train_dataset_path: /media/malchul/Новый том/Downloads_Ubuntu/ShapeNetCore.v2.PC15k/03001627
   val_dataset_path: /media/malchul/Новый том/Downloads_Ubuntu/ShapeNetCore.v2.PC15k/03001627
@@ -76,7 +75,7 @@ data_params:
 
 scheduler_params:
    scheduler: ExponentialLR
-   gamma: 0.995405417351527
+   gamma: 0.9977000638225534
 
 
 

@@ -1,3 +1,5 @@
+import math
+
 import torch
 import torch.nn as nn
 
@@ -27,6 +29,8 @@ class ResnetBlockConv1d(nn.Module):
             norm = nn.BatchNorm1d
         elif norm_method == 'sync_batch_norm':
             norm = nn.SyncBatchNorm
+        elif norm_method == 'group_norm':
+            norm = lambda x: nn.GroupNorm(32, x, affine=True)
         else:
              raise Exception("Invalid norm method: %s" % norm_method)
 
@@ -36,7 +40,7 @@ class ResnetBlockConv1d(nn.Module):
         self.fc_0 = nn.Conv1d(size_in, size_h, 1)
         self.fc_1 = nn.Conv1d(size_h, size_out, 1)
         self.fc_c = nn.Conv1d(c_dim, size_out, 1)
-        self.actvn = nn.ReLU()
+        self.actvn = nn.LeakyReLU(inplace=False)
 
         if size_in == size_out:
             self.shortcut = None
@@ -71,24 +75,30 @@ class ShapeGFDecoder(nn.Module):
         sigma_condition: True
         xyz_condition: True
     """
-    def __init__(self, _, cfg):
+    def __init__(self, z_dim, dim, out_dim, hidden_size, n_blocks, norm_method):
         super().__init__()
-        self.cfg = cfg
-        self.z_dim = z_dim = cfg.z_dim
-        self.dim = dim = cfg.dim
-        self.out_dim = out_dim = cfg.out_dim
-        self.hidden_size = hidden_size = cfg.hidden_size
-        self.n_blocks = n_blocks = cfg.n_blocks
+
+        self.z_dim = z_dim
+        self.dim = dim
+        self.out_dim = out_dim
+        self.hidden_size = hidden_size
+        self.n_blocks = n_blocks
 
         # Input = Conditional = zdim (shape) + dim (xyz) + 1 (sigma)
         c_dim = z_dim + dim + 1
         self.conv_p = nn.Conv1d(c_dim, hidden_size, 1)
         self.blocks = nn.ModuleList([
-            ResnetBlockConv1d(c_dim, hidden_size) for _ in range(n_blocks)
+            ResnetBlockConv1d(c_dim, hidden_size, norm_method=norm_method) for _ in range(n_blocks)
         ])
         self.bn_out = nn.BatchNorm1d(hidden_size)
         self.conv_out = nn.Conv1d(hidden_size, out_dim, 1)
-        self.actvn_out = nn.ReLU()
+
+
+        init_std = 0.01
+        torch.nn.init.normal_(self.conv_out.weight, 0, 1/math.sqrt(self.conv_out.weight.shape[1]) * init_std)
+
+
+        self.actvn_out = nn.LeakyReLU(inplace=False)
 
     # This should have the same signature as the sig condition one
     def forward(self, x, c):

@@ -17,7 +17,8 @@ from datasets.sampled_shapenetv2 import SampledShapeNetV2Dataset
 from datasets.transformed_dataset import TransformedDataset
 from losses import ChamferDistance, MaxChamferDistance
 from losses.losses import define_loss, define_loss_from_params
-from losses.point_loss import MaxDistance
+from torch.utils.data.dataset import ConcatDataset
+from losses.point_loss import MaxDistance, SigmaDistance, RobustSigmaDistance
 from models import networks
 
 import torch
@@ -54,7 +55,7 @@ class ThreeDExperiment(pl.LightningModule):
 
         self.sigma_best = nn.Parameter(torch.ones(1) * self.sigma_begin)
         self.sigma_begin = nn.Parameter(torch.ones(1) * self.sigma_begin)
-        self.sigma_loss = MaxDistance()
+        self.sigma_loss = RobustSigmaDistance()
 
 
     def get_scheduler(self, optimizer):
@@ -102,14 +103,24 @@ class ThreeDExperiment(pl.LightningModule):
         return _sort_verts
         #return None
 
+    # Fix bug in lr scheduling
+    def on_epoch_end(self):
+        if (self.current_epoch + 1) % self.hparams.check_val_every_n_epoch != 0:
+            with torch.no_grad():
+                self.trainer.optimizer_connector.update_learning_rates(interval='epoch')
+
     def prepare_data(self):
         config = self.get_nearest_point_sampling_config(self.hparams.points_count, self.hparams.nearest_points_count)
 
-        self.train_dataset = SortedItemsDatasetWrapper(items=['surface_points', 'all_points'], dataset=TransformedDataset(
-            SampledShapeNetV2Dataset(config, self.hparams.data_params.train_dataset_path, 'train'),
-            self.get_transforms('train')))
+        self.train_dataset = ConcatDataset(
+            [SortedItemsDatasetWrapper(items=['surface_points', 'all_points'], dataset=TransformedDataset(
+                SampledShapeNetV2Dataset(config, self.hparams.data_params.train_dataset_path, 'train'),
+                self.get_transforms('train'))),
+             SortedItemsDatasetWrapper(items=['surface_points', 'all_points'], dataset=TransformedDataset(
+                 SampledShapeNetV2Dataset(config, self.hparams.data_params.train_dataset_path, 'test'),
+                 self.get_transforms('train')))])
         self.val_dataset = SortedItemsDatasetWrapper(items=['surface_points'], dataset=TransformedDataset(
-            SampledShapeNetV2Dataset(config, self.hparams.data_params.val_dataset_path, 'test', use_all_points=True),
+            SampledShapeNetV2Dataset(config, self.hparams.data_params.val_dataset_path, 'val', use_all_points=True),
             self.get_transforms('valid')))
 
     def forward(self, perturbed_points, z, sigma):
@@ -138,6 +149,7 @@ class ThreeDExperiment(pl.LightningModule):
             self.log_point_cloud('train/' + 'input_point_cloud', points_gt.unsqueeze(0))
             points_pred = out['perturbed_points'][batch_idx:batch_idx+1] + out['y_pred'][batch_idx:batch_idx+1]
             self.log_point_cloud('train/' + 'predicted_point_cloud', points_pred)
+            self.log_point_cloud('train/' + 'perturbed_points', out['perturbed_points'][batch_idx].unsqueeze(0))
 
             self.log_point_cloud('train/' + 'folding_point_cloud', out['folding_points'][batch_idx].unsqueeze(0))
 
@@ -174,7 +186,13 @@ class ThreeDExperiment(pl.LightningModule):
         folded_points, folded_points_first, grid = self.folding_decoder(z)
         folding_loss = self.folding_loss(folded_points, input) * self.hparams.trainer.folding_coef + self.folding_loss(folded_points_first, input) * self.hparams.trainer.folding_first_coef
 
-        max_distance = self.sigma_loss(folded_points, input)
+        with torch.no_grad():
+            max_distance = self.sigma_loss(folded_points, input)
+            if not torch.isfinite(max_distance):
+                print('max_distance is not finite')
+                max_distance = self.sigma_begin.data
+            else:
+                self.log('max_distance', max_distance, prog_bar=True)
         clipped_distance = torch.min(torch.ones(1).to(z.device) * self.hparams.trainer.sigma_begin, max_distance)
         self.sigma_begin.data = self.sigma_momentum * clipped_distance + (1 - self.sigma_momentum) * self.sigma_begin.data
         if (self.global_step + 1) % self.hparams.trainer.update_sigmas_step == 0 and self.sigma_begin.data.item() < self.sigma_best.data.item() * self.hparams.trainer.sigma_decrease_coef:
@@ -239,7 +257,7 @@ class ThreeDExperiment(pl.LightningModule):
         if not torch.all(torch.isfinite(loss)):
             loss = torch.ones(1).mean().to(pred.device)
         #print('valid/chamfer_distance', loss)
-        self.log('valid_chamfer_distance', loss, prog_bar=True)
+        self.log('valid_chamfer_distance', loss)
 
         ids = torch.randperm(batch[0].shape[1])[:self.hparams.trainer.valid_chamfer_points]
         small_input = batch[0][:, ids, :]
@@ -249,7 +267,7 @@ class ThreeDExperiment(pl.LightningModule):
         small_loss = self.val_loss(small_input, small_pred)
         if not torch.all(torch.isfinite(small_loss)):
             small_loss = torch.ones(1).mean().to(small_pred.device)
-        self.log('valid_chamfer_distance_small', small_loss, prog_bar=True)
+        self.log('valid_chamfer_distance_small', small_loss)
 
         log = {'valid/chamfer_distance': loss}
         self.log_dict(log, prog_bar=False, on_step=True, on_epoch=True)
