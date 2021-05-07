@@ -2,6 +2,11 @@
 Instalation
 pip install -r requrements.txt
 
+#### Install emd
+
+cd losses/emd
+python3 setup.py install
+
 #### Install Kaolin (For PointNet++)
 In 0.1 version PointNet exist, they are remove all geometric models from next versions.
 

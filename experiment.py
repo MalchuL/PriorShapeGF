@@ -18,7 +18,7 @@ from datasets.transformed_dataset import TransformedDataset
 from losses import ChamferDistance, MaxChamferDistance
 from losses.losses import define_loss, define_loss_from_params
 from torch.utils.data.dataset import ConcatDataset
-from losses.point_loss import MaxDistance, SigmaDistance, RobustSigmaDistance
+from losses.point_loss import MaxDistance, SigmaDistance, RobustSigmaDistance, EMDLoss
 from models import networks
 
 import torch
@@ -49,7 +49,8 @@ class ThreeDExperiment(pl.LightningModule):
         self.sigma_momentum = self.hparams.trainer.sigma_momentum
         print(self.sigmas)
         self.create_model()
-        self.folding_loss = MaxChamferDistance()
+        self.folding_loss = EMDLoss()
+        self.folding_loss_simple = MaxChamferDistance()
         self.identity_folding_loss = nn.MSELoss()
         self.val_loss = ChamferDistance()
 
@@ -112,14 +113,10 @@ class ThreeDExperiment(pl.LightningModule):
     def prepare_data(self):
         config = self.get_nearest_point_sampling_config(self.hparams.points_count, self.hparams.nearest_points_count)
 
-        self.train_dataset = ConcatDataset(
-            [SortedItemsDatasetWrapper(items=['surface_points', 'all_points'], dataset=TransformedDataset(
+        self.train_dataset = SortedItemsDatasetWrapper(items=['surface_points', 'all_points'], dataset=TransformedDataset(
                 SampledShapeNetV2Dataset(config, self.hparams.data_params.train_dataset_path, 'train'),
-                self.get_transforms('train'))),
-             SortedItemsDatasetWrapper(items=['surface_points', 'all_points'], dataset=TransformedDataset(
-                 SampledShapeNetV2Dataset(config, self.hparams.data_params.train_dataset_path, 'test'),
-                 self.get_transforms('train')))])
-        self.val_dataset = SortedItemsDatasetWrapper(items=['surface_points'], dataset=TransformedDataset(
+                self.get_transforms('train')))
+        self.val_dataset = SortedItemsDatasetWrapper(items=['surface_points', 'all_points'], dataset=TransformedDataset(
             SampledShapeNetV2Dataset(config, self.hparams.data_params.val_dataset_path, 'val', use_all_points=True),
             self.get_transforms('valid')))
 
@@ -184,7 +181,15 @@ class ThreeDExperiment(pl.LightningModule):
         z = z_mu + 0 * z_sigma
 
         folded_points, folded_points_first, grid = self.folding_decoder(z)
-        folding_loss = self.folding_loss(folded_points, input) * self.hparams.trainer.folding_coef + self.folding_loss(folded_points_first, input) * self.hparams.trainer.folding_first_coef
+        if self.global_step > self.hparams.trainer.folding_grid_steps or self.global_step < 10:  # Test check EMD
+            folding_loss = self.folding_loss(folded_points,
+                                             input) * self.hparams.trainer.folding_coef + self.folding_loss_simple(
+                folded_points_first, input) * self.hparams.trainer.folding_first_coef
+        else:
+            folding_loss = self.folding_loss_simple(folded_points,
+                                                    input) * self.hparams.trainer.folding_coef + self.folding_loss_simple(
+                folded_points_first, input) * self.hparams.trainer.folding_first_coef
+
 
         with torch.no_grad():
             max_distance = self.sigma_loss(folded_points, input)
@@ -232,13 +237,13 @@ class ThreeDExperiment(pl.LightningModule):
         self.update_sigmas()
         print(self.sigmas)
         if batch_nb == 0:
-            input = batch[0]
+            input, all_points = batch
             z, _ = self.encoder(input)
             prior_cloud, _, _ = self.folding_decoder(z)
             pred = self.langevin_dynamics(z, prior_cloud, self.hparams.valid_points_count, self.hparams.step_size_ratio,
                                           self.hparams.num_steps,
                                           self.hparams.weight)
-            print(pred.shape)
+            print(input.shape, all_points.shape, pred.shape)
             self.log_point_cloud('valid/' + 'input_point_cloud', input[0].unsqueeze(0))
             self.log_point_cloud('valid/' + 'pred_point_cloud', pred[0].unsqueeze(0))
             self.log_point_cloud('valid/' + 'folding_point_cloud', prior_cloud[0].unsqueeze(0))
@@ -248,19 +253,19 @@ class ThreeDExperiment(pl.LightningModule):
             ids = torch.randperm(pred.shape[1])[:self.hparams.trainer.valid_chamfer_points]
             self.log_point_cloud('valid/' + 'folding_point_cloud_small', pred[:, ids, :][0].unsqueeze(0))
 
-        z, _ = self.encoder(batch[0])
+        input, all_points = batch
+        z, _ = self.encoder(input)
         prior_cloud, _, _ = self.folding_decoder(z)
         pred = self.langevin_dynamics(z, prior_cloud, self.hparams.valid_points_count, self.hparams.step_size_ratio,
                                       self.hparams.num_steps,
                                       self.hparams.weight)
-        loss = self.val_loss(batch[0], pred )
+        loss = self.val_loss(all_points, pred)
         if not torch.all(torch.isfinite(loss)):
             loss = torch.ones(1).mean().to(pred.device)
         #print('valid/chamfer_distance', loss)
         self.log('valid_chamfer_distance', loss)
 
-        ids = torch.randperm(batch[0].shape[1])[:self.hparams.trainer.valid_chamfer_points]
-        small_input = batch[0][:, ids, :]
+        small_input = input
         ids = torch.randperm(pred.shape[1])[:self.hparams.trainer.valid_chamfer_points]
         small_pred = pred[:, ids, :]
 
@@ -279,7 +284,7 @@ class ThreeDExperiment(pl.LightningModule):
         def log_point_cloud(name, point_cloud, step):
             self.logger.experiment.add_mesh(name, point_cloud, global_step=step)
 
-        input = batch[0]
+        input, all_points = batch
         z, _ = self.encoder(input)
         prior_cloud, _, _ = self.folding_decoder(z)
         pred = self.langevin_dynamics(z, prior_cloud, self.hparams.valid_points_count, self.hparams.step_size_ratio,
@@ -297,14 +302,14 @@ class ThreeDExperiment(pl.LightningModule):
             ids = torch.randperm(pred.shape[1])[:self.hparams.trainer.valid_chamfer_points]
             log_point_cloud('valid/' + 'folding_point_cloud_small', pred[:, ids, :][i].unsqueeze(0), step)
 
-        loss = self.val_loss(batch[0], pred)
+        loss = self.val_loss(all_points, pred)
         # print('valid/chamfer_distance', loss)
         self.log('valid_chamfer_distance', loss, prog_bar=True)
 
         self.logger.experiment.add_scalar('valid_chamfer_distance', loss, batch_nb)
 
         ids = torch.randperm(batch[0].shape[1])[:self.hparams.trainer.valid_chamfer_points]
-        small_input = batch[0][:, ids, :]
+        small_input = input
         ids = torch.randperm(pred.shape[1])[:self.hparams.trainer.valid_chamfer_points]
         small_pred = pred[:, ids, :]
 

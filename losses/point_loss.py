@@ -2,6 +2,9 @@ import torch
 import torch.nn as nn
 import kaolin as kal
 from kaolin.metrics import directed_distance, SidedDistance
+import emd
+
+from losses.emd.emd_module import emdModule
 
 
 class RMSEPointLoss(nn.Module):
@@ -238,11 +241,12 @@ class RobustSigmaDistance(nn.Module):
             return self.simple_mask_by_Z(x, self.Z_index_simple)
         return x[mask]
 
-    def __init__(self, Z_index=1, Z_index_simple=1, min_elements=20):
+    def __init__(self, Z_index=0, Z_index_simple=1, q=(0.15, 0.85), min_elements=20):
         super(RobustSigmaDistance, self).__init__()
         self.Z_index = Z_index
         self.Z_index_simple = Z_index_simple
         self.min_elements = min_elements
+        self.q = q
 
     def sigma_distance(self, S1: torch.Tensor, S2: torch.Tensor):
         # Nx3
@@ -252,8 +256,8 @@ class RobustSigmaDistance(nn.Module):
         dist_to_S2 = directed_sigma(S1, S2, mean=False)
         dist_to_S1 = directed_sigma(S2, S1, mean=False)
 
-        std_S1 = torch.std(self.mask_by_Z(dist_to_S2, self.Z_index))
-        std_S2 = torch.std(self.mask_by_Z(dist_to_S1, self.Z_index))
+        std_S1 = torch.std(self.mask_by_Z(dist_to_S2, self.Z_index, q=self.q))
+        std_S2 = torch.std(self.mask_by_Z(dist_to_S1, self.Z_index, q=self.q))
 
         # Returns in MSE value
         return std_S1, std_S2
@@ -269,3 +273,16 @@ class RobustSigmaDistance(nn.Module):
 
         return max_loss
 
+
+
+
+
+class EMDLoss(nn.Module):
+    def __init__(self, iters=50, eps=0.005): # As in https://github.com/Colin97/MSN-Point-Cloud-Completion/tree/master/emd
+        super(EMDLoss, self).__init__()
+        self.iters = iters
+        self.eps = eps
+        self.loss = emdModule()
+
+    def forward(self, input1, input2):
+        return self.loss(input1, input2, self.eps, self.iters)[0].mean()

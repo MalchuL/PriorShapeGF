@@ -55,15 +55,16 @@ class SampledShapeNetV2Dataset(Dataset):
         data = np.load(self.indexes[idx])
         #data = self.normalize_points_radius_1(data)
 
-        if self.use_all_points:
-            result[self.mesh_sampler_config.sample_points] = data.astype(np.float32)
-        else:
-            sample_count = self.mesh_sampler_config.sample_settings.sample_points_count
-            choises = np.random.choice(data.shape[0], size=sample_count, replace=False)
-            result[self.mesh_sampler_config.sample_points] = data[choises].astype(np.float32)
+        sample_count = self.mesh_sampler_config.sample_settings.sample_points_count
+        choises = np.random.choice(data.shape[0], size=sample_count, replace=False)
+        result[self.mesh_sampler_config.sample_points] = data[choises].astype(np.float32)
 
-        all_samples_choises = np.random.choice(data.shape[0], size=self.mesh_sampler_config.all_points_count, replace=False)
-        result[self.mesh_sampler_config.all_points] = data[all_samples_choises].astype(np.float32)
+
+        if self.use_all_points:
+            result[self.mesh_sampler_config.all_points] = data.astype(np.float32)
+        else:
+            all_samples_choises = np.random.choice(data.shape[0], size=self.mesh_sampler_config.all_points_count, replace=False)
+            result[self.mesh_sampler_config.all_points] = data[all_samples_choises].astype(np.float32)
 
         return result
 
