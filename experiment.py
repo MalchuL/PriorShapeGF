@@ -18,7 +18,7 @@ from datasets.transformed_dataset import TransformedDataset
 from losses import ChamferDistance, MaxChamferDistance
 from losses.losses import define_loss, define_loss_from_params
 from torch.utils.data.dataset import ConcatDataset
-from losses.point_loss import MaxDistance, SigmaDistance, RobustSigmaDistance, EMDLoss
+from losses.point_loss import MaxDistance, SigmaDistance, RobustSigmaDistance, EMDLoss, distChamfer
 from models import networks
 
 import torch
@@ -53,6 +53,7 @@ class ThreeDExperiment(pl.LightningModule):
         self.folding_loss_simple = MaxChamferDistance()
         self.identity_folding_loss = nn.MSELoss()
         self.val_loss = ChamferDistance()
+        self.test_loss = distChamfer
 
         self.sigma_best = nn.Parameter(torch.ones(1) * self.sigma_begin)
         self.sigma_begin = nn.Parameter(torch.ones(1) * self.sigma_begin)
@@ -116,7 +117,7 @@ class ThreeDExperiment(pl.LightningModule):
         self.train_dataset = SortedItemsDatasetWrapper(items=['surface_points', 'all_points'], dataset=TransformedDataset(
                 SampledShapeNetV2Dataset(config, self.hparams.data_params.train_dataset_path, 'train'),
                 self.get_transforms('train')))
-        self.val_dataset = SortedItemsDatasetWrapper(items=['surface_points', 'all_points'], dataset=TransformedDataset(
+        self.val_dataset = SortedItemsDatasetWrapper(items=['surface_points', 'all_points', 'center', 'scale'], dataset=TransformedDataset(
             SampledShapeNetV2Dataset(config, self.hparams.data_params.val_dataset_path, 'val', use_all_points=True),
             self.get_transforms('valid')))
 
@@ -233,33 +234,38 @@ class ThreeDExperiment(pl.LightningModule):
                'reconstruction_loss': reconstruction_loss, 'grid_coef': grid_coef, 'fixed_sigmas': self.sigma_best.data.item(), 'sigmas': self.sigma_begin.data.item()}
         return {'loss': loss, 'out': out, 'log': log, 'progress_bar': log}
 
+    def renormalize(self, data, center, scale):
+        norm_vert = data * scale.view(-1, 1, 1) + center.view(-1, 1, 3)
+        return norm_vert
+
     def validation_step(self, batch, batch_nb):
         self.update_sigmas()
         print(self.sigmas)
         if batch_nb == 0:
-            input, all_points = batch
+            input, all_points, _, _ = batch
             z, _ = self.encoder(input)
             prior_cloud, _, _ = self.folding_decoder(z)
             pred = self.langevin_dynamics(z, prior_cloud, self.hparams.valid_points_count, self.hparams.step_size_ratio,
                                           self.hparams.num_steps,
                                           self.hparams.weight)
             print(input.shape, all_points.shape, pred.shape)
-            self.log_point_cloud('valid/' + 'input_point_cloud', input[0].unsqueeze(0))
+            self.log_point_cloud('valid/' + 'input_point_cloud', all_points[0].unsqueeze(0))
             self.log_point_cloud('valid/' + 'pred_point_cloud', pred[0].unsqueeze(0))
             self.log_point_cloud('valid/' + 'folding_point_cloud', prior_cloud[0].unsqueeze(0))
 
-            ids = torch.randperm(input.shape[1])[:self.hparams.trainer.valid_chamfer_points]
-            self.log_point_cloud('valid/' + 'input_small', input[:, ids, :][0].unsqueeze(0))
+            self.log_point_cloud('valid/' + 'input_small', input[0].unsqueeze(0))
             ids = torch.randperm(pred.shape[1])[:self.hparams.trainer.valid_chamfer_points]
             self.log_point_cloud('valid/' + 'folding_point_cloud_small', pred[:, ids, :][0].unsqueeze(0))
 
-        input, all_points = batch
+        input, all_points, center, scale = batch
         z, _ = self.encoder(input)
         prior_cloud, _, _ = self.folding_decoder(z)
         pred = self.langevin_dynamics(z, prior_cloud, self.hparams.valid_points_count, self.hparams.step_size_ratio,
                                       self.hparams.num_steps,
                                       self.hparams.weight)
-        loss = self.val_loss(all_points, pred)
+
+        renormalized_all_points, renormalized_pred = self.renormalize(all_points, center, scale), self.renormalize(pred, center, scale)
+        loss = self.val_loss(renormalized_pred, renormalized_all_points)
         if not torch.all(torch.isfinite(loss)):
             loss = torch.ones(1).mean().to(pred.device)
         #print('valid/chamfer_distance', loss)
@@ -269,7 +275,10 @@ class ThreeDExperiment(pl.LightningModule):
         ids = torch.randperm(pred.shape[1])[:self.hparams.trainer.valid_chamfer_points]
         small_pred = pred[:, ids, :]
 
-        small_loss = self.val_loss(small_input, small_pred)
+        renormalized_small_input, renormalized_small_pred = self.renormalize(small_input, center, scale), self.renormalize(small_pred,
+                                                                                                                   center,
+                                                                                                                   scale)
+        small_loss = self.val_loss(renormalized_small_pred, renormalized_small_input)
         if not torch.all(torch.isfinite(small_loss)):
             small_loss = torch.ones(1).mean().to(small_pred.device)
         self.log('valid_chamfer_distance_small', small_loss)
@@ -278,13 +287,16 @@ class ThreeDExperiment(pl.LightningModule):
         self.log_dict(log, prog_bar=False, on_step=True, on_epoch=True)
 
     def test_step(self, batch, batch_nb):
+        self.encoder.eval()
+        self.decoder.eval()
+        self.folding_decoder.eval()
         self.update_sigmas()
         print(self.sigmas)
 
         def log_point_cloud(name, point_cloud, step):
             self.logger.experiment.add_mesh(name, point_cloud, global_step=step)
 
-        input, all_points = batch
+        input, all_points, center, scale = batch
         z, _ = self.encoder(input)
         prior_cloud, _, _ = self.folding_decoder(z)
         pred = self.langevin_dynamics(z, prior_cloud, self.hparams.valid_points_count, self.hparams.step_size_ratio,
@@ -293,28 +305,61 @@ class ThreeDExperiment(pl.LightningModule):
         print(input.shape, pred.shape)
         for i in range(pred.shape[0]):
             step = batch_nb * input.shape[0] + i
-            log_point_cloud('valid/' + 'input_point_cloud', input[i].unsqueeze(0), step)
+            log_point_cloud('valid/' + 'input_point_cloud', all_points[i].unsqueeze(0), step)
             log_point_cloud('valid/' + 'pred_point_cloud', pred[i].unsqueeze(0), step)
             log_point_cloud('valid/' + 'folding_point_cloud', prior_cloud[i].unsqueeze(0), step)
 
-            ids = torch.randperm(input.shape[1])[:self.hparams.trainer.valid_chamfer_points]
-            log_point_cloud('valid/' + 'input_small', input[:, ids, :][i].unsqueeze(0), step)
+            log_point_cloud('valid/' + 'input_small', input[i].unsqueeze(0), step)
             ids = torch.randperm(pred.shape[1])[:self.hparams.trainer.valid_chamfer_points]
             log_point_cloud('valid/' + 'folding_point_cloud_small', pred[:, ids, :][i].unsqueeze(0), step)
 
-        loss = self.val_loss(all_points, pred)
+        renormalized_all_points, renormalized_pred = self.renormalize(all_points, center, scale), self.renormalize(pred,
+                                                                                                                   center,
+                                                                                                                   scale)
+
+        # assert  renormalized_pred.shape[-1] == 3 and renormalized_all_points.shape[-1] == 3
+        # dl, dr = self.test_loss(renormalized_pred, renormalized_all_points)
+        # loss = dl.mean(dim=1) + dr.mean(dim=1)
+
+        output = {}
         # print('valid/chamfer_distance', loss)
-        self.log('valid_chamfer_distance', loss, prog_bar=True)
+        # output['valid_chamfer_distance'] = loss
 
-        self.logger.experiment.add_scalar('valid_chamfer_distance', loss, batch_nb)
 
-        ids = torch.randperm(batch[0].shape[1])[:self.hparams.trainer.valid_chamfer_points]
         small_input = input
         ids = torch.randperm(pred.shape[1])[:self.hparams.trainer.valid_chamfer_points]
         small_pred = pred[:, ids, :]
 
-        small_loss = self.val_loss(small_input, small_pred)
-        self.log('valid_chamfer_distance_small', small_loss, prog_bar=True)
+        renormalized_small_input, renormalized_small_pred = self.renormalize(small_input, center,
+                                                                             scale), self.renormalize(small_pred,
+                                                                                                      center,
+                                                                                                      scale)
+        dl, dr = self.test_loss(renormalized_small_pred, renormalized_small_input)
+        small_loss = dl.mean(dim=1) + dr.mean(dim=1)
+        print('small_loss', small_loss)
+        output['valid_chamfer_distance_small'] = small_loss
+        return output
+
+    def test_epoch_end(self, outputs):
+        def merge_dict(outputs):
+            if not outputs:
+                return {}
+            keys = outputs[0].keys()
+            result = {}
+            for key in keys:
+                merged_values = []
+                for value in outputs:
+                    merged_values.append(value[key])
+                result[key] = torch.cat(merged_values, dim=0)
+
+            return result
+
+
+        outputs = merge_dict(outputs)
+        for k,v in outputs.items():
+            loss = v.mean()
+            print(f'loss {k} has value {loss}')
+            self.log(k, loss)
 
 
     def langevin_dynamics(self, z, prior_cloud, num_points=2048, step_size_ratio=1, num_steps=10, weight=1):

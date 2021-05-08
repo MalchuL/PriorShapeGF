@@ -37,15 +37,15 @@ class SampledShapeNetV2Dataset(Dataset):
 
     def normalize_points_1_1(self, point_cloud):
         center = 0.5 * (point_cloud.max(axis=0) + point_cloud.min(axis=0))
-        scale = (point_cloud.max(axis=0) - point_cloud.min(axis=0)).max() * 0.5
+        scale = (point_cloud.max(axis=0) - point_cloud.min(axis=0)).max()
         norm_vert = (point_cloud - center) / scale
-        return norm_vert
+        return norm_vert, center, scale
 
     def normalize_points_radius_1(self, point_cloud):
         center = 0.5 * (point_cloud.max(axis=0) + point_cloud.min(axis=0))
         scale = np.sqrt(((point_cloud.max(axis=0) - point_cloud.min(axis=0)) ** 2).sum()) * 0.5
         norm_vert = (point_cloud - center) / scale
-        return norm_vert
+        return norm_vert, center, scale
 
     def __getitem__(self, idx):
 
@@ -53,7 +53,9 @@ class SampledShapeNetV2Dataset(Dataset):
 
         # Data in [Nx3] N == 15000
         data = np.load(self.indexes[idx])
-        #data = self.normalize_points_radius_1(data)
+        data, center, scale = self.normalize_points_1_1(data)
+        result['center'] = center.astype(np.float32)
+        result['scale'] = scale.astype(np.float32)
 
         sample_count = self.mesh_sampler_config.sample_settings.sample_points_count
         choises = np.random.choice(data.shape[0], size=sample_count, replace=False)

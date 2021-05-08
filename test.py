@@ -19,7 +19,7 @@ def main(cfg):
         mode='min',
         save_top_k=3,
         save_last=True,
-        filepath='model_ep-{epoch}_cd_full-{valid_chamfer_distance}_small_cd-{valid_chamfer_distance_small}'
+        filename='model_ep-{epoch}_cd_full-{valid_chamfer_distance}_small_cd-{valid_chamfer_distance_small}'
     )
 
     trainer = Trainer(gpus=1 , max_epochs=cfg.num_epochs, logger=logger,
@@ -27,7 +27,7 @@ def main(cfg):
                           log_every_n_steps=cfg.log_freq, flush_logs_every_n_steps=cfg.log_freq, log_gpu_memory=True, limit_train_batches=cfg.train_steps_limit, limit_val_batches=cfg.val_steps_limit,
                           resume_from_checkpoint=cfg.checkpoint_path, check_val_every_n_epoch=cfg.check_val_every_n_epoch,
                           callbacks=[LearningRateMonitor()])
-
+    model = model.load_from_checkpoint(cfg.checkpoint_path)
     trainer.test(model)
 
 
