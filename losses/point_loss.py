@@ -213,40 +213,21 @@ class SigmaDistance(nn.Module):
         return max_loss
 
 class RobustSigmaDistance(nn.Module):
-    # Filter to save only outliers
-    def simple_mask_by_Z(self, x, Z_index):
-        if Z_index is None:
-            return x
-        with torch.no_grad():
-            std, mean = torch.std_mean(x)
-            x_minus_mean = torch.abs(x - mean)
-            mask = x_minus_mean > Z_index * std
-        if torch.all(torch.logical_not(mask)) and mask.sum() < self.min_elements:
-            print(f'All tensors in std of {Z_index}, mean={mean}, std={std}, max={x_minus_mean.max()}, min={x_minus_mean.min()}, mean={x_minus_mean.mean()}, elements={mask.sum()}')
-            return x
-        return x[mask]
 
-
-    def mask_by_Z(self, x, Z_index, q=(0.25,0.75)):
-        if Z_index is None:
-            return x
+    def mask_by_Z(self, x, q_begin=(0.05, 0.95), q_end=(0.25, 0.75)):
         with torch.no_grad():
-            q = torch.tensor(q).type_as(x)
+            q = torch.tensor(q_begin + q_end).type_as(x)
             quantiles = torch.quantile(x, q)
-            iqr = quantiles[1] - quantiles[0]
-            mask = (x < quantiles[0] - Z_index * iqr) | (x > quantiles[1] + Z_index * iqr)
+            mask_begin = (x < quantiles[0]) | (x > quantiles[1])
+            mask_end = (x > quantiles[2]) & (x < quantiles[3])
 
-        if torch.all(torch.logical_not(mask)) and mask.sum() < self.min_elements:
-            print(f'All tensors in std of {Z_index}, mean={x.mean()}, iqr={iqr},  quantiles={quantiles}, elements={mask.sum()}')
-            return self.simple_mask_by_Z(x, self.Z_index_simple)
-        return x[mask]
+        return x[mask_begin], x[mask_end]
 
-    def __init__(self, Z_index=0, Z_index_simple=1, q=(0.15, 0.85), min_elements=20):
+    def __init__(self, q_begin=(0.05, 0.95), q_end=(0.25, 0.75), min_elements=20):
         super(RobustSigmaDistance, self).__init__()
-        self.Z_index = Z_index
-        self.Z_index_simple = Z_index_simple
         self.min_elements = min_elements
-        self.q = q
+        self.q_begin = q_begin
+        self.q_end = q_end
 
     def sigma_distance(self, S1: torch.Tensor, S2: torch.Tensor):
         # Nx3
@@ -256,22 +237,29 @@ class RobustSigmaDistance(nn.Module):
         dist_to_S2 = directed_sigma(S1, S2, mean=False)
         dist_to_S1 = directed_sigma(S2, S1, mean=False)
 
-        std_S1 = torch.std(self.mask_by_Z(dist_to_S2, self.Z_index, q=self.q))
-        std_S2 = torch.std(self.mask_by_Z(dist_to_S1, self.Z_index, q=self.q))
+        S1_mask_begin, S1_mask_end = self.mask_by_Z(dist_to_S2, q_begin=self.q_begin, q_end=self.q_end)
+        S2_mask_begin, S2_mask_end = self.mask_by_Z(dist_to_S1, q_begin=self.q_begin, q_end=self.q_end)
+
+        begin = max(torch.std(S1_mask_begin), torch.std(S2_mask_begin))
+        end = max(torch.std(S1_mask_end), torch.std(S2_mask_end))
 
         # Returns in MSE value
-        return std_S1, std_S2
+        return begin, end
 
     def forward(self, x, y):  # for example, x = batch,M,3 y = batch,M,3
 
         max_loss = []
+        min_loss = []
         x_size = x.size()
         for i in range(x_size[0]):
-            max_loss.append(max(self.sigma_distance(x[i], y[i])))
+            begin, end = self.sigma_distance(x[i], y[i])
+            max_loss.append(begin)
+            min_loss.append(end)
 
         max_loss = torch.stack(max_loss).mean()
+        min_loss = torch.stack(min_loss).mean()
 
-        return max_loss
+        return max_loss, min_loss
 
 
 

@@ -39,12 +39,12 @@ class ThreeDExperiment(pl.LightningModule):
 
         self.hparams = hparams
 
-        self.sigma_begin = float(self.hparams.trainer.sigma_begin)
-        self.sigma_end = float(self.sigma_begin / self.hparams.trainer.sigma_denominator)
+        self._sigma_begin = float(self.hparams.trainer.sigma_begin)
+        self._sigma_end = float(self._sigma_begin / self.hparams.trainer.sigma_denominator)
         self.num_classes = int(self.hparams.trainer.sigma_num)
         self.sigmas = np.exp(
-            np.linspace(np.log(self.sigma_begin),
-                        np.log(self.sigma_end),
+            np.linspace(np.log(self._sigma_begin),
+                        np.log(self._sigma_end),
                         self.num_classes, dtype=np.float32))
         self.sigma_momentum = self.hparams.trainer.sigma_momentum
         print(self.sigmas)
@@ -55,8 +55,11 @@ class ThreeDExperiment(pl.LightningModule):
         self.val_loss = ChamferDistance()
         self.test_loss = distChamfer
 
-        self.sigma_best = nn.Parameter(torch.ones(1) * self.sigma_begin)
-        self.sigma_begin = nn.Parameter(torch.ones(1) * self.sigma_begin)
+        self.register_buffer('sigma_best_max', torch.ones(1) * self._sigma_begin)
+        self.register_buffer('sigma_best_min', torch.ones(1) * self._sigma_end)
+        self.register_buffer('sigma_begin', torch.ones(1) * self._sigma_begin)
+        self.register_buffer('sigma_end', torch.ones(1) * self._sigma_end)
+
         self.sigma_loss = RobustSigmaDistance()
 
 
@@ -157,8 +160,8 @@ class ThreeDExperiment(pl.LightningModule):
         self.logger.experiment.add_mesh(name, point_cloud, global_step=self.global_step)
 
     def update_sigmas(self):
-        sigma_begin = self.sigma_best.data.detach().item()
-        sigma_end = sigma_begin / self.hparams.trainer.sigma_denominator
+        sigma_begin = self.sigma_best_max.item()
+        sigma_end = self.sigma_best_min.item()
         self.sigmas = np.exp(
             np.linspace(np.log(sigma_begin),
                         np.log(sigma_end),
@@ -193,16 +196,22 @@ class ThreeDExperiment(pl.LightningModule):
 
 
         with torch.no_grad():
-            max_distance = self.sigma_loss(folded_points, input)
-            if not torch.isfinite(max_distance):
-                print('max_distance is not finite')
-                max_distance = self.sigma_begin.data
-            else:
-                self.log('max_distance', max_distance, prog_bar=True)
+            max_distance, min_distance = self.sigma_loss(folded_points, input)
+            self.log('max_distance', max_distance, prog_bar=True)
+            self.log('min_distance', min_distance, prog_bar=True)
         clipped_distance = torch.min(torch.ones(1).to(z.device) * self.hparams.trainer.sigma_begin, max_distance)
-        self.sigma_begin.data = self.sigma_momentum * clipped_distance + (1 - self.sigma_momentum) * self.sigma_begin.data
-        if (self.global_step + 1) % self.hparams.trainer.update_sigmas_step == 0 and self.sigma_begin.data.item() < self.sigma_best.data.item() * self.hparams.trainer.sigma_decrease_coef:
-            self.sigma_best.data = self.sigma_best.data * self.hparams.trainer.sigma_decrease_coef
+        self.sigma_begin = self.sigma_momentum * clipped_distance + (1 - self.sigma_momentum) * self.sigma_begin
+
+        clipped_distance = torch.min(torch.ones(1).to(z.device) * self.hparams.trainer.sigma_begin / self.hparams.trainer.sigma_denominator, min_distance)
+        self.sigma_end = self.sigma_momentum * clipped_distance + (1 - self.sigma_momentum) * self.sigma_end
+
+        if (self.global_step + 1) % self.hparams.trainer.update_sigmas_step == 0 and self.sigma_begin.item() < self.sigma_best_max.item() * self.hparams.trainer.sigma_decrease_coef:
+            self.sigma_best_max = self.sigma_best_max * self.hparams.trainer.sigma_decrease_coef
+            self.update_sigmas()
+            print('new_sigmas is', self.sigmas)
+
+        if (self.global_step + 1) % self.hparams.trainer.update_sigmas_step == 0 and self.sigma_end.item() < self.sigma_best_min.item() * self.hparams.trainer.sigma_decrease_coef:
+            self.sigma_best_min = self.sigma_best_min * self.hparams.trainer.sigma_decrease_coef
             self.update_sigmas()
             print('new_sigmas is', self.sigmas)
 
@@ -218,7 +227,10 @@ class ThreeDExperiment(pl.LightningModule):
         y_pred = self.forward(perturbed_points, z, sigmas)
 
         with torch.no_grad():
-            input_nearest = self.get_nearest_points(perturbed_points, all_points)
+            if self.hparams.trainer.use_nearest:
+                input_nearest = self.get_nearest_points(perturbed_points, all_points)
+            else:
+                input_nearest = input
 
         reconstruction_loss = self.reconstruction_loss(input_nearest, perturbed_points, y_pred, sigmas) * self.hparams.trainer.reconstruction_coef
 
@@ -230,9 +242,14 @@ class ThreeDExperiment(pl.LightningModule):
                'folding_points': folded_points,
                'sigmas': sigmas
                }
-        log = {'train/loss': loss, 'max': input.max(), 'min': input.min(), 'folding_loss': folding_loss,
-               'reconstruction_loss': reconstruction_loss, 'grid_coef': grid_coef, 'fixed_sigmas': self.sigma_best.data.item(), 'sigmas': self.sigma_begin.data.item()}
-        return {'loss': loss, 'out': out, 'log': log, 'progress_bar': log}
+        log = {'loss': loss, 'folding_loss': folding_loss,
+               'reconstruction_loss': reconstruction_loss, 's_begin': self.sigma_begin.item(), 's_end': self.sigma_end.item(), 's_max': self.sigma_best_max.item(), 's_min': self.sigma_best_min.item() }
+        prog_bar = log.copy()
+        if self.global_step > self.hparams.trainer.folding_grid_steps:
+            log['grid_coef'] = grid_coef
+
+
+        return {'loss': loss, 'out': out, 'log': log, 'progress_bar': prog_bar}
 
     def renormalize(self, data, center, scale):
         norm_vert = data * scale.view(-1, 1, 1) + center.view(-1, 1, 3)
