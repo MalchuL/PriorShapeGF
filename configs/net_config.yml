@@ -21,9 +21,11 @@ log_point_cloud: 100
 check_val_every_n_epoch: 60
 
 trainer:
-  sigma_begin: 0.1
+  sigma_begin: 0.5
   sigma_denominator: 10
   sigma_num: 10
+
+  use_nearest: False
 
   reconstruction_coef: 10
 
