@@ -1,4 +1,5 @@
 import itertools
+import os
 from argparse import Namespace
 from pathlib import Path
 
@@ -334,11 +335,11 @@ class ThreeDExperiment(pl.LightningModule):
             step = batch_nb * input.shape[0] + i
             log_point_cloud('valid/' + 'input_point_cloud', all_points[i].unsqueeze(0), step)
             log_point_cloud('valid/' + 'pred_point_cloud', pred[i].unsqueeze(0), step)
-            log_point_cloud('valid/' + 'folding_point_cloud', prior_cloud[i].unsqueeze(0), step)
+            #log_point_cloud('valid/' + 'folding_point_cloud', prior_cloud[i].unsqueeze(0), step)
 
-            log_point_cloud('valid/' + 'input_small', input[i].unsqueeze(0), step)
-            ids = torch.randperm(pred.shape[1])[:self.hparams.trainer.valid_chamfer_points]
-            log_point_cloud('valid/' + 'folding_point_cloud_small', pred[:, ids, :][i].unsqueeze(0), step)
+            #log_point_cloud('valid/' + 'input_small', input[i].unsqueeze(0), step)
+            #ids = torch.randperm(pred.shape[1])[:self.hparams.trainer.valid_chamfer_points]
+            #log_point_cloud('valid/' + 'folding_point_cloud_small', pred[:, ids, :][i].unsqueeze(0), step)
 
         renormalized_all_points, renormalized_pred = self.renormalize(all_points, center, scale), self.renormalize(pred,
                                                                                                                    center,
@@ -365,6 +366,18 @@ class ThreeDExperiment(pl.LightningModule):
         small_loss = dl.mean(dim=1) + dr.mean(dim=1)
         print('small_loss', small_loss)
         output['valid_chamfer_distance_small'] = small_loss
+
+        os.makedirs('pred', exist_ok=True)
+        os.makedirs('gt', exist_ok=True)
+        for i in range(pred.shape[0]):
+            with open(f'pred/batch_{self.hparams.val_batch_size * batch_nb + i}_loss_{small_loss[i].item():.6f}.npy',
+                      'wb') as f:
+                np.save(f, pred[i].detach().cpu().numpy())
+
+            with open(f'gt/batch_{self.hparams.val_batch_size * batch_nb + i}_loss_{small_loss[i].item():.6f}.npy',
+                      'wb') as f:
+                np.save(f, all_points[i].detach().cpu().numpy())
+
         return output
 
     def test_epoch_end(self, outputs):
@@ -412,13 +425,13 @@ class ThreeDExperiment(pl.LightningModule):
             for sigma in sigmas:
                 sigma = torch.ones((1,)).cuda() * sigma
                 z_sigma = torch.cat((z, sigma.expand(z.size(0), 1)), dim=1)
-                step_size = 2 * sigma ** 2 * step_size_ratio
+                step_size = sigma ** 2 * step_size_ratio
                 for t in range(num_steps):
                     z_t = torch.randn_like(x) * weight
                     x += torch.sqrt(step_size) * z_t
                     grad = self.decoder(x, z_sigma)
                     grad = grad / sigma ** 2
-                    x += 0.5 * step_size * grad
+                    x += step_size * grad
                 #print('max/min for sigma', sigma, ':',x.max(),'/',x.min())
         return x
 
