@@ -13,6 +13,7 @@ valid_points_count: 15000
 nearest_points_count: 15000
 step_size_ratio: 1
 num_steps: 2
+use_folding: True
 weight: 1.0
 
 
@@ -25,18 +26,18 @@ trainer:
   sigma_denominator: 10
   sigma_num: 10
 
-  use_nearest: False
+  use_nearest: True
 
-  reconstruction_coef: 10
+  reconstruction_coef: 1
 
   sigma_momentum: 0.05
   update_sigmas_step: 100
   sigma_decrease_coef: 0.9
 
-  folding_coef: 10
-  folding_first_coef: 1
+  folding_coef: 1
+  folding_first_coef: 0.1
 
-  folding_grid_coef: 2
+  folding_grid_coef: 0.2
   folding_grid_steps: 10000
 
   valid_chamfer_points: 2048
@@ -44,18 +45,19 @@ trainer:
 #  TODO если есть get_from_params тогда передаст в них, иначе вызовет как конструктор
 encoder_params:
   model: PointNet2Featurizer
-  out_features: &z_dim 128
+  out_features: &z_dim 256
   in_features: 0
   batchnorm: False
 
 
 decoder_params:
-  model: ShapeGFDecoder
+  model: ShapeGFConditionalDecoder
   z_dim: *z_dim
   dim: 3
   out_dim: 3
   hidden_size: 256
-  n_blocks: 24
+  n_blocks: 16
+  sigma_condition: True
   norm_method: group_norm
 
 folding_decoder_params:
@@ -82,7 +84,7 @@ scheduler_params:
 
 
 optimizer_params:
-  optimizer: AdamW
+  optimizer: Adam
   lr: *lr
   weight_decay: *wd
 

@@ -214,7 +214,7 @@ class SigmaDistance(nn.Module):
 
 class RobustSigmaDistance(nn.Module):
 
-    def mask_by_Z(self, x, q_begin=(0.05, 0.95), q_end=(0.25, 0.75)):
+    def mask_by_Z(self, x, q_begin=(0.01, 0.99), q_end=(0.25, 0.75)):
         with torch.no_grad():
             q = torch.tensor(q_begin + q_end).type_as(x)
             quantiles = torch.quantile(x, q)
@@ -223,7 +223,7 @@ class RobustSigmaDistance(nn.Module):
 
         return x[mask_begin], x[mask_end]
 
-    def __init__(self, q_begin=(0.05, 0.95), q_end=(0.25, 0.75), min_elements=20):
+    def __init__(self, q_begin=(0.01, 0.99), q_end=(0.25, 0.75), min_elements=20):
         super(RobustSigmaDistance, self).__init__()
         self.min_elements = min_elements
         self.q_begin = q_begin

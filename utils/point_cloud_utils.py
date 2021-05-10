@@ -16,4 +16,4 @@ def get_sigmas(sigmas, batch_size):
 
 def get_prior(batch_size, num_points, inp_dim):
     # -1 to 1, uniform
-    return (torch.rand(batch_size, num_points, inp_dim) * 2 - 1.) * 0.1
+    return (torch.randn(batch_size, num_points, inp_dim) * 0.3)

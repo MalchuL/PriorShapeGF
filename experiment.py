@@ -184,43 +184,47 @@ class ThreeDExperiment(pl.LightningModule):
         z_mu, z_sigma = self.encoder(input)
         z = z_mu + 0 * z_sigma
 
-        folded_points, folded_points_first, grid = self.folding_decoder(z)
-        if self.global_step > self.hparams.trainer.folding_grid_steps or self.global_step < 10:  # Test check EMD
-            folding_loss = self.folding_loss(folded_points,
-                                             input) * self.hparams.trainer.folding_coef + self.folding_loss_simple(
-                folded_points_first, input) * self.hparams.trainer.folding_first_coef
+        if self.hparams.use_folding:
+            folded_points, folded_points_first, grid = self.folding_decoder(z)
+            if self.global_step > self.hparams.trainer.folding_grid_steps or self.global_step < 10:  # Test check EMD
+                folding_loss = self.folding_loss(folded_points,
+                                                 input) * self.hparams.trainer.folding_coef + self.folding_loss_simple(
+                    folded_points_first, input) * self.hparams.trainer.folding_first_coef
+            else:
+                folding_loss = self.folding_loss_simple(folded_points,
+                                                        input) * self.hparams.trainer.folding_coef + self.folding_loss_simple(
+                    folded_points_first, input) * self.hparams.trainer.folding_first_coef
+
+
+            with torch.no_grad():
+                max_distance, min_distance = self.sigma_loss(folded_points, input)
+                self.log('max_distance', max_distance, prog_bar=True)
+                self.log('min_distance', min_distance, prog_bar=True)
+            clipped_distance = torch.min(torch.ones(1).to(z.device) * self.hparams.trainer.sigma_begin, max_distance)
+            self.sigma_begin = self.sigma_momentum * clipped_distance + (1 - self.sigma_momentum) * self.sigma_begin
+
+            clipped_distance = torch.min(torch.ones(1).to(z.device) * self.hparams.trainer.sigma_begin / self.hparams.trainer.sigma_denominator, min_distance)
+            self.sigma_end = self.sigma_momentum * clipped_distance + (1 - self.sigma_momentum) * self.sigma_end
+
+            if (self.global_step + 1) % self.hparams.trainer.update_sigmas_step == 0 and self.sigma_begin.item() < self.sigma_best_max.item() * self.hparams.trainer.sigma_decrease_coef:
+                self.sigma_best_max = self.sigma_best_max * self.hparams.trainer.sigma_decrease_coef
+                self.update_sigmas()
+                print('new_sigmas is', self.sigmas)
+
+            if (self.global_step + 1) % self.hparams.trainer.update_sigmas_step == 0 and self.sigma_end.item() < self.sigma_best_min.item() * self.hparams.trainer.sigma_decrease_coef:
+                self.sigma_best_min = self.sigma_best_min * self.hparams.trainer.sigma_decrease_coef
+                self.update_sigmas()
+                print('new_sigmas is', self.sigmas)
+
+
+            grid_coef = 0
+            if self.global_step < self.hparams.trainer.folding_grid_steps:
+                grid_coef = self.hparams.trainer.folding_grid_coef * (1 - self.global_step / self.hparams.trainer.folding_grid_steps)
+                folding_loss += grid_coef * (self.identity_folding_loss(folded_points, grid) + self.identity_folding_loss(folded_points_first, grid))
         else:
-            folding_loss = self.folding_loss_simple(folded_points,
-                                                    input) * self.hparams.trainer.folding_coef + self.folding_loss_simple(
-                folded_points_first, input) * self.hparams.trainer.folding_first_coef
-
-
-        with torch.no_grad():
-            max_distance, min_distance = self.sigma_loss(folded_points, input)
-            self.log('max_distance', max_distance, prog_bar=True)
-            self.log('min_distance', min_distance, prog_bar=True)
-        clipped_distance = torch.min(torch.ones(1).to(z.device) * self.hparams.trainer.sigma_begin, max_distance)
-        self.sigma_begin = self.sigma_momentum * clipped_distance + (1 - self.sigma_momentum) * self.sigma_begin
-
-        clipped_distance = torch.min(torch.ones(1).to(z.device) * self.hparams.trainer.sigma_begin / self.hparams.trainer.sigma_denominator, min_distance)
-        self.sigma_end = self.sigma_momentum * clipped_distance + (1 - self.sigma_momentum) * self.sigma_end
-
-        if (self.global_step + 1) % self.hparams.trainer.update_sigmas_step == 0 and self.sigma_begin.item() < self.sigma_best_max.item() * self.hparams.trainer.sigma_decrease_coef:
-            self.sigma_best_max = self.sigma_best_max * self.hparams.trainer.sigma_decrease_coef
-            self.update_sigmas()
-            print('new_sigmas is', self.sigmas)
-
-        if (self.global_step + 1) % self.hparams.trainer.update_sigmas_step == 0 and self.sigma_end.item() < self.sigma_best_min.item() * self.hparams.trainer.sigma_decrease_coef:
-            self.sigma_best_min = self.sigma_best_min * self.hparams.trainer.sigma_decrease_coef
-            self.update_sigmas()
-            print('new_sigmas is', self.sigmas)
-
-
-        grid_coef = 0
-        if self.global_step < self.hparams.trainer.folding_grid_steps:
-            grid_coef = self.hparams.trainer.folding_grid_coef * (1 - self.global_step / self.hparams.trainer.folding_grid_steps)
-            folding_loss += grid_coef * (self.identity_folding_loss(folded_points, grid) + self.identity_folding_loss(folded_points_first, grid))
-
+            folding_loss = 0
+            folded_points = input
+            grid_coef = 0
         #self.sigmas_min.data = self.sigma_momentum * torch.sqrt(self.folding_loss(folded_points, input)) + (1 - self.sigma_momentum) * self.sigmas_min.data
 
         perturbed_points = input + offsets * sigmas.view(-1, 1, 1)
@@ -261,7 +265,10 @@ class ThreeDExperiment(pl.LightningModule):
         if batch_nb == 0:
             input, all_points, _, _ = batch
             z, _ = self.encoder(input)
-            prior_cloud, _, _ = self.folding_decoder(z)
+            if self.hparams.use_folding:
+                prior_cloud, _, _ = self.folding_decoder(z)
+            else:
+                prior_cloud = get_prior(z.size(0), self.hparams.valid_points_count, 3)
             pred = self.langevin_dynamics(z, prior_cloud, self.hparams.valid_points_count, self.hparams.step_size_ratio,
                                           self.hparams.num_steps,
                                           self.hparams.weight)
@@ -276,7 +283,10 @@ class ThreeDExperiment(pl.LightningModule):
 
         input, all_points, center, scale = batch
         z, _ = self.encoder(input)
-        prior_cloud, _, _ = self.folding_decoder(z)
+        if self.hparams.use_folding:
+            prior_cloud, _, _ = self.folding_decoder(z)
+        else:
+            prior_cloud = get_prior(z.size(0), self.hparams.valid_points_count, 3)
         pred = self.langevin_dynamics(z, prior_cloud, self.hparams.valid_points_count, self.hparams.step_size_ratio,
                                       self.hparams.num_steps,
                                       self.hparams.weight)
