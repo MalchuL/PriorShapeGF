@@ -2,6 +2,7 @@ import registry.registries as registry
 from models.decoders.folding_net_dec import FoldingNetDec, FoldingNetDec3d, FoldingNetDec3dSphere
 from models.decoders.point_net_dec import PointNetDecoder
 from models.encoders.dgcnn import DGCNN_cls
+from models.encoders.image_encoders.resnet import ResNet18
 from models.encoders.l3dp_encoder import ShapeGFEncoder
 from models.decoders.resnet_add import ShapeGFDecoder
 from models.decoders.resnet_cbn import ShapeGFConditionalDecoder
@@ -17,6 +18,8 @@ registry.Model(PointNetDecoder)
 registry.Model(FoldingNetDec3d)
 registry.Model(FoldingNetDec3dSphere)
 registry.Model(DGCNN_cls)
+
+registry.Model(ResNet18)
 
 def define_encoder(name, args):
     return registry.MODELS.get_instance(name, **args)
