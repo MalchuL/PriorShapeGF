@@ -61,7 +61,7 @@ class ThreeDExperiment(pl.LightningModule):
         self.register_buffer('sigma_begin', torch.ones(1) * self._sigma_begin)
         self.register_buffer('sigma_end', torch.ones(1) * self._sigma_end)
 
-        self.sigma_loss = RobustSigmaDistance()
+        self.sigma_loss = RobustSigmaDistance(q_begin=self.hparams.trainer.robust_sigma.q_begin, q_end=self.hparams.trainer.robust_sigma.q_end)
 
 
     def get_scheduler(self, optimizer):

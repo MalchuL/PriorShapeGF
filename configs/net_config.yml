@@ -30,6 +30,10 @@ trainer:
 
   reconstruction_coef: 1
 
+  robust_sigma:
+    q_begin: [0.01, 0.99]
+    q_end: [0.25, 0.75]
+
   sigma_momentum: 0.05
   update_sigmas_step: 100
   sigma_decrease_coef: 0.9
